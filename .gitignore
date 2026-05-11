@@ -1,0 +1,17 @@
+# Environments
+venv/
+env/
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Models and data (if you don't want to push large model files, though you might want to if it's small)
+# *.pth
+# *.pkl
+
+# OS generated files
+.DS_Store
+Thumbs.db
