@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     CLINICAL_MODEL_PATH: str = "app/models/clinical/symptom_model_refined.pkl"
     SYMPTOMS_LIST_PATH: str = "app/models/clinical/symptoms_list_refined.pkl"
     
+    # LLM Configuration
+    LLM_MODEL_PATH: str = "app/models/medical_ai_adapter/kaggle/working/medical_ai_lora_adapter"
+    LLM_BASE_MODEL: str = "unsloth/qwen2.5-7b-instruct-unsloth-bnb-4bit"
+    ENABLE_LLM: bool = True
+    
     # Hardware Configuration
     # Auto-detect GPU if available, otherwise CPU
     DEVICE: str = os.getenv("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")

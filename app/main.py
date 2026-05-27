@@ -1,11 +1,11 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 import logging
 import time
 import uuid
-from app.api.routes import predict, health, symptoms
+from app.api.routes import predict, health, symptoms, report, chat
 from app.core.config import settings
 from app.dependencies.model_loader import model_loader
 
@@ -76,6 +76,14 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal server error. Please check logs."},
     )
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    logger.warning(f"HTTP Error {exc.status_code}: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+    )
+
 # Middleware: Request ID & Timing
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -93,6 +101,8 @@ async def add_process_time_header(request: Request, call_next):
 app.include_router(health.router, prefix=f"{settings.API_V1_STR}", tags=["Health"])
 app.include_router(symptoms.router, prefix=f"{settings.API_V1_STR}", tags=["Diagnosis"])
 app.include_router(predict.router, prefix=f"{settings.API_V1_STR}", tags=["Diagnosis"])
+app.include_router(report.router, prefix=f"{settings.API_V1_STR}/report", tags=["Diagnosis Report"])
+app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["Chatbot"])
 
 @app.on_event("startup")
 async def startup_event():

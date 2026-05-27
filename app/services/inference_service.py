@@ -26,7 +26,7 @@ class InferenceService:
     def symptoms_list(self):
         return model_loader.symptoms_list
 
-    def predict(self, image_bytes: bytes, symptoms_str: str) -> dict:
+    def predict(self, image_bytes: bytes, symptoms_str: str, curb65_score: int = None) -> dict:
         """Main prediction orchestration logic (CLEAN VERSION)."""
         
         if not self.vision_model or not self.clinical_model:
@@ -39,7 +39,7 @@ class InferenceService:
         
         with torch.no_grad():
             with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
-                logits = self.vision_model(input_tensor)
+                logits = self.vision_model(input_tensor.to(settings.DEVICE))
                 raw_prob_vision = torch.sigmoid(logits).item()
 
         # Calibration: G4 optimum threshold is 0.345. We map 0.345 -> 0.5 for scaling balance
@@ -79,7 +79,7 @@ class InferenceService:
 
         # 5. Master Prompt Generation
         master_prompt = generate_consultant_prompt(
-            prob_vision, prob_clinical, final_score, selected_symptoms
+            prob_vision, prob_clinical, final_score, selected_symptoms, curb65_score
         )
 
         return {

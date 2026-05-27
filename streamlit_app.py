@@ -117,3 +117,42 @@ if st.button("📊 ĐƯA RA KẾT LUẬN TỔNG HỢP", use_container_width=True
         else:
             st.success(f"🟢 NGUY CƠ THẤP ({final_score*100:.2f}%)")
             st.write("**Chỉ dẫn:** Chưa thấy dấu hiệu bệnh lý phổi rõ rệt từ cả hai phương thức.")
+
+        # --- 5. TÍCH HỢP BÁO CÁO LLM TỪ API ---
+        st.markdown("---")
+        st.subheader("🤖 Hội đồng Chuyên gia Y khoa AI (Qwen2.5-Medical-LoRA)")
+        
+        from app.utils.report_generator import generate_consultant_prompt
+        import requests
+        
+        # Build prompt (Note: streamlit_app.py uses 0.6/0.4 weights but we pass to standard consultant prompt)
+        master_prompt = generate_consultant_prompt(
+            prob_vision, prob_clinical, final_score, selected
+        )
+        
+        backend_url = "http://localhost:8000/api/v1/report/generate"
+        
+        with st.spinner("Đang gửi dữ liệu phân tích tới Hội đồng Chuyên gia LLM API..."):
+            try:
+                response = requests.post(
+                    backend_url,
+                    json={"prompt": master_prompt},
+                    timeout=30.0
+                )
+                if response.status_code == 200:
+                    report_data = response.json()
+                    report_text = report_data.get("report", "")
+                    is_fallback = report_data.get("fallback", False)
+                    
+                    if is_fallback:
+                        st.info("ℹ️ Báo cáo được tạo ở chế độ Mô phỏng (Offline/CPU Fallback)")
+                    else:
+                        st.success("✅ Báo cáo được tạo trực tiếp từ mô hình Qwen2.5 LoRA (GPU)")
+                    
+                    st.markdown(report_text)
+                else:
+                    st.error(f"Không thể kết nối tới LLM API. Mã lỗi: {response.status_code}")
+                    st.info("Đảm bảo API server đang chạy tại http://localhost:8000 (Chạy lệnh: `uvicorn app.main:app`)")
+            except Exception as e:
+                st.error(f"Lỗi kết nối tới LLM API: {str(e)}")
+                st.info("Đảm bảo API server đang chạy tại http://localhost:8000 (Chạy lệnh: `uvicorn app.main:app`)")

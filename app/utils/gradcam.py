@@ -11,17 +11,21 @@ logger = logging.getLogger(__name__)
 
 class GradCAM:
     """
-    Grad-CAM implementation optimized for EfficientNet-B4 and Mixed Precision.
-    Uses manual forward tracking to avoid hook issues with Autocast.
+    Grad-CAM implementation optimized for PyTorch 2.x and Mixed Precision.
+    Uses forward and backward hooks to capture activations and gradients,
+    making it fully compatible with any model architecture (EfficientNet, DenseNet, etc.).
     """
     def __init__(self, model, target_layer):
         self.model = model
         self.target_layer = target_layer
+        self.activations = None
         self.gradients = None
 
+    def _save_activations(self, module, input, output):
+        self.activations = output.detach()
+
     def _save_gradients(self, module, grad_input, grad_output):
-        # Using legacy backward hook as it handles autocast scaled gradients better in some torch versions
-        self.gradients = grad_output[0]
+        self.gradients = grad_output[0].detach()
 
     def generate(self, input_tensor, img_cropped):
         """Generates heatmap with High-Res sharpening (Power 4)."""
@@ -29,39 +33,30 @@ class GradCAM:
         input_tensor = input_tensor.to(device)
         input_tensor.requires_grad = True
 
-        # Register hook for gradients
-        # Use older register_backward_hook if requested for autocast compatibility
-        h_b = self.target_layer.register_backward_hook(self._save_gradients)
+        # Register hooks
+        h_f = self.target_layer.register_forward_hook(self._save_activations)
+        if hasattr(self.target_layer, "register_full_backward_hook"):
+            h_b = self.target_layer.register_full_backward_hook(self._save_gradients)
+        else:
+            h_b = self.target_layer.register_backward_hook(self._save_gradients)
 
         try:
             self.model.zero_grad()
             
             # Forward pass with Autocast
             with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
-                x = input_tensor
-                activations = None
-                
-                # Manual iteration through features to capture activations exactly
-                for i, layer in enumerate(self.model.features):
-                    x = layer(x)
-                    if layer == self.target_layer:
-                        activations = x.clone()
-                
-                # Complete the forward pass
-                x = self.model.avgpool(x)
-                x = torch.flatten(x, 1)
-                output = self.model.classifier(x)
+                output = self.model(input_tensor)
             
-            # Backward pass
-            output.backward()
+            # Backward pass on the scalar mean (robust to any shape)
+            output.mean().backward()
 
-            if self.gradients is None or activations is None:
+            if self.gradients is None or self.activations is None:
                 logger.error("GRAD-CAM FAILED: Gradients or Activations not captured.")
                 return None
             
             # Process Gradients and Activations
             gradients_np = self.gradients.cpu().data.numpy()[0]
-            activations_np = activations.cpu().data.numpy()[0]
+            activations_np = self.activations.cpu().data.numpy()[0]
             
             # Global Average Pooling for Gradients
             weights = np.mean(gradients_np, axis=(1, 2))
@@ -105,6 +100,7 @@ class GradCAM:
             logger.error(f"GRAD-CAM GENERATION ERROR: {str(e)}")
             return None
         finally:
+            h_f.remove()
             h_b.remove()
 
     def _apply_colormap(self, heatmap_gray):
