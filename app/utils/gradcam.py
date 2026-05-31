@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 
 class GradCAM:
     """
-    Grad-CAM implementation optimized for PyTorch 2.x and Mixed Precision.
-    Uses forward and backward hooks to capture activations and gradients,
-    making it fully compatible with any model architecture (EfficientNet, DenseNet, etc.).
+    Grad-CAM implementation optimized for PyTorch 2.x and GPU environments.
+    Uses a forward hook and a direct tensor backward hook to reliably capture
+    activations and gradients on any device/version.
     """
     def __init__(self, model, target_layer):
         self.model = model
@@ -23,28 +23,32 @@ class GradCAM:
 
     def _save_activations(self, module, input, output):
         self.activations = output.detach()
-
-    def _save_gradients(self, module, grad_input, grad_output):
-        self.gradients = grad_output[0].detach()
+        
+        # Register a backward hook directly on the output tensor.
+        # This is 100% robust across all PyTorch versions and GPU/autocast modes.
+        def _save_gradients(grad):
+            self.gradients = grad.detach()
+            
+        output.register_hook(_save_gradients)
 
     def generate(self, input_tensor, img_cropped):
-        """Generates heatmap with High-Res sharpening (Power 4)."""
+        """Generates heatmap with High-Res sharpening (Power 2)."""
         device = next(self.model.parameters()).device
         input_tensor = input_tensor.to(device)
         input_tensor.requires_grad = True
 
-        # Register hooks
+        self.activations = None
+        self.gradients = None
+
+        # Register forward hook
         h_f = self.target_layer.register_forward_hook(self._save_activations)
-        if hasattr(self.target_layer, "register_full_backward_hook"):
-            h_b = self.target_layer.register_full_backward_hook(self._save_gradients)
-        else:
-            h_b = self.target_layer.register_backward_hook(self._save_gradients)
 
         try:
             self.model.zero_grad()
             
-            # Forward pass with Autocast
-            with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+            # Forward pass in standard float32 (disabling autocast to ensure hooks trigger on GPU)
+            with torch.amp.autocast(device_type="cuda", enabled=False):
+                input_tensor = input_tensor.float()
                 output = self.model(input_tensor)
             
             # Backward pass on the scalar mean (robust to any shape)
@@ -95,13 +99,11 @@ class GradCAM:
             buffered = io.BytesIO()
             result.save(buffered, format="JPEG", quality=95)
             return base64.b64encode(buffered.getvalue()).decode()
-
         except Exception as e:
             logger.error(f"GRAD-CAM GENERATION ERROR: {str(e)}")
             return None
         finally:
             h_f.remove()
-            h_b.remove()
 
     def _apply_colormap(self, heatmap_gray):
         """Converts grayscale to a pseudo-thermal (Jet) color map."""
