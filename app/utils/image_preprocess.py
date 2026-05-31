@@ -7,29 +7,25 @@ from app.core.config import settings
 def get_image_transform():
     """Returns the transformation pipeline for the vision model."""
     return transforms.Compose([
-        transforms.Resize(settings.IMAGE_SIZE),
-        transforms.CenterCrop(settings.CENTER_CROP),
+        transforms.Resize((448, 448)),
         transforms.ToTensor(),
-        transforms.Normalize(settings.NORM_MEAN, settings.NORM_STD)
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
 def preprocess_image(image_bytes: bytes) -> tuple:
     """
     Processes raw image bytes into:
     1. A PyTorch tensor for inference.
-    2. A cropped PIL image for heatmap visualization (matching AI's view).
+    2. A resized PIL image for heatmap visualization (matching training size).
     """
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     
-    # Standard AI Preprocessing
-    resize = transforms.Resize(settings.IMAGE_SIZE)
-    crop = transforms.CenterCrop(settings.CENTER_CROP)
-    normalize = transforms.Normalize(settings.NORM_MEAN, settings.NORM_STD)
+    # Matching the exact training transforms (Resize 448x448, no CenterCrop)
+    resize = transforms.Resize((448, 448))
+    normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     
-    # 1. Prepare for AI
     img_resized = resize(image)
-    img_cropped = crop(img_resized)
-    input_tensor = transforms.ToTensor()(img_cropped).unsqueeze(0)
+    input_tensor = transforms.ToTensor()(img_resized).unsqueeze(0)
     input_tensor = normalize(input_tensor)
     
-    return input_tensor, img_cropped
+    return input_tensor, img_resized
