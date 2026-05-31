@@ -44,6 +44,10 @@ class DiagnosisResponse(BaseModel):
         description="List of symptoms that were detected and utilized for the clinical probability analysis",
         examples=[["cough", "high_fever", "chest_pain"]]
     )
+    gradcam_error: Optional[str] = Field(
+        None,
+        description="Detailed traceback/error if Grad-CAM generation failed"
+    )
     master_prompt: Optional[str] = Field(
         None,
         description="Pre-formatted professional prompt for an LLM medical review board based on current results"

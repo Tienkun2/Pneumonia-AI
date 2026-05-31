@@ -98,10 +98,12 @@ class GradCAM:
             
             buffered = io.BytesIO()
             result.save(buffered, format="JPEG", quality=95)
-            return base64.b64encode(buffered.getvalue()).decode()
+            return base64.b64encode(buffered.getvalue()).decode(), None
         except Exception as e:
-            logger.error(f"GRAD-CAM GENERATION ERROR: {str(e)}")
-            return None
+            import traceback
+            err_msg = f"Error: {str(e)}\n{traceback.format_exc()}"
+            logger.error(f"GRAD-CAM GENERATION ERROR: {err_msg}")
+            return None, err_msg
         finally:
             h_f.remove()
 

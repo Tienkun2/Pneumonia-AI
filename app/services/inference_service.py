@@ -57,21 +57,24 @@ class InferenceService:
 
         # 2. Grad-CAM Visualization
         heatmap_b64 = None
+        gradcam_err = None
         try:
             logger.info(f"Targeting logic for Grad-CAM (Raw: {raw_prob_vision:.4f}, Calibrated: {prob_vision:.4f})...")
             # Force grad for visualization
             input_tensor.requires_grad = True
             # For EfficientNet-B4, features[8][0] is the last conv layer (leaf layer) before pooling
             gcam = GradCAM(self.vision_model, self.vision_model.features[8][0])
-            heatmap_b64 = gcam.generate(input_tensor, img_cropped)
+            heatmap_b64, gradcam_err = gcam.generate(input_tensor, img_cropped)
             
             if heatmap_b64:
                 heatmap_b64 = f"data:image/jpeg;base64,{heatmap_b64}"
                 logger.info("GRAD-CAM GENERATED SUCCESSFULLY")
             else:
-                logger.warning("GRAD-CAM RETURNED NONE")
+                logger.warning(f"GRAD-CAM RETURNED NONE. Error: {gradcam_err}")
         except Exception as e:
-            logger.error(f"CRITICAL GRAD-CAM ERROR: {str(e)}")
+            import traceback
+            gradcam_err = f"Outer error: {str(e)}\n{traceback.format_exc()}"
+            logger.error(f"CRITICAL GRAD-CAM ERROR: {gradcam_err}")
             heatmap_b64 = None
 
         # 3. Clinical Inference
@@ -134,7 +137,8 @@ class InferenceService:
             "applied_vision_weight": round(vision_weight, 2),
             "applied_clinical_weight": round(clinical_weight, 2),
             "curb65_score": curb65_score,
-            "clinical_alerts": clinical_alerts
+            "clinical_alerts": clinical_alerts,
+            "gradcam_error": gradcam_err
         }
 
     def _get_risk_level(self, score: float) -> RiskLevel:
