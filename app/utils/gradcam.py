@@ -34,7 +34,7 @@ class GradCAM:
     def generate(self, input_tensor, img_cropped):
         """Generates heatmap with High-Res sharpening (Power 2)."""
         device = next(self.model.parameters()).device
-        input_tensor = input_tensor.to(device)
+        input_tensor = input_tensor.to(device).detach()
         input_tensor.requires_grad = True
 
         self.activations = None
