@@ -60,8 +60,8 @@ class InferenceService:
         gradcam_err = None
         try:
             logger.info(f"Targeting logic for Grad-CAM (Raw: {raw_prob_vision:.4f}, Calibrated: {prob_vision:.4f})...")
-            # For EfficientNet-B4, features[8][0] is the last conv layer (leaf layer) before pooling
-            gcam = GradCAM(self.vision_model, self.vision_model.features[8][0])
+            # For EfficientNet-B4, features[8] is the last conv block (including Conv2d, BatchNorm2d, and SiLU)
+            gcam = GradCAM(self.vision_model, self.vision_model.features[8])
             heatmap_b64, gradcam_err = gcam.generate(input_tensor, img_cropped)
             
             if heatmap_b64:
