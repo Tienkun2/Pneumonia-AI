@@ -47,9 +47,9 @@ class ModelLoader:
             v_model.classifier[1] = nn.Linear(v_model.classifier[1].in_features, 1)
             v_model.load_state_dict(torch.load(settings.VISION_MODEL_PATH, map_location=settings.DEVICE))
             
-            # Ensure no in-place ReLU for visualization consistency (if applicable in v_model)
+            # Ensure no in-place ReLU/SiLU for visualization consistency
             for module in v_model.modules():
-                if isinstance(module, nn.ReLU):
+                if isinstance(module, (nn.ReLU, nn.SiLU)):
                     module.inplace = False
             
             v_model.to(settings.DEVICE)
