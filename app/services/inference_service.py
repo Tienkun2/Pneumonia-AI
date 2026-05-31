@@ -26,7 +26,14 @@ class InferenceService:
     def symptoms_list(self):
         return model_loader.symptoms_list
 
-    def predict(self, image_bytes: bytes, symptoms_str: str, curb65_score: int = None) -> dict:
+    def predict(
+        self, 
+        image_bytes: bytes, 
+        symptoms_str: str, 
+        curb65_score: int = None,
+        custom_vision_weight: float = None,
+        custom_clinical_weight: float = None
+    ) -> dict:
         """Main prediction orchestration logic (CLEAN VERSION)."""
         
         if not self.vision_model or not self.clinical_model:
@@ -73,13 +80,47 @@ class InferenceService:
         clinical_probs = self.clinical_model.predict_proba([input_vector])
         prob_clinical = clinical_probs[0][1]
 
-        # 4. Result Construction
-        final_score = (prob_vision * settings.VISION_WEIGHT) + (prob_clinical * settings.CLINICAL_WEIGHT)
-        risk_level = self._get_risk_level(final_score)
+        # 4. Determine Weights (Trọng số)
+        if custom_vision_weight is not None and custom_clinical_weight is not None:
+            # Custom clinician weights
+            total = custom_vision_weight + custom_clinical_weight
+            if total > 0:
+                vision_weight = custom_vision_weight / total
+                clinical_weight = custom_clinical_weight / total
+                logger.info(f"Using custom clinician weights: Vision={vision_weight:.2f}, Clinical={clinical_weight:.2f}")
+            else:
+                vision_weight = settings.VISION_WEIGHT
+                clinical_weight = settings.CLINICAL_WEIGHT
+        elif curb65_score is not None and curb65_score >= 3:
+            # Dynamic weights for severe clinical symptoms
+            vision_weight = 0.5
+            clinical_weight = 0.5
+            logger.info(f"High clinical severity (CURB-65={curb65_score} >= 3). Dynamically adjusting weights to 5:5.")
+        else:
+            vision_weight = settings.VISION_WEIGHT
+            clinical_weight = settings.CLINICAL_WEIGHT
 
-        # 5. Master Prompt Generation
+        # 5. Extract Clinical Alerts based on symptoms
+        clinical_alerts = []
+        if "breathlessness" in selected_symptoms and "fast_heart_rate" in selected_symptoms:
+            clinical_alerts.append("CRITICAL: Nhịp tim nhanh kèm khó thở nguy hiểm. Nguy cơ suy hô hấp cấp tính.")
+        if "rusty_sputum" in selected_symptoms:
+            clinical_alerts.append("WARNING: Xuất hiện đờm màu rỉ sắt. Nghi ngờ cao nhiễm khuẩn Streptococcus pneumoniae.")
+        if curb65_score is not None and curb65_score >= 3:
+            clinical_alerts.append(f"CRITICAL: Điểm lâm sàng CURB-65 cao ({curb65_score}/5). Kích hoạt cơ chế bảo vệ tối đa và cưỡng chế mức độ nguy cơ HIGH.")
+
+        # 6. Result Construction
+        final_score = (prob_vision * vision_weight) + (prob_clinical * clinical_weight)
+        
+        # Enforce risk level override for safety
+        if curb65_score is not None and curb65_score >= 3:
+            risk_level = RiskLevel.HIGH
+        else:
+            risk_level = self._get_risk_level(final_score)
+
+        # 7. Master Prompt Generation
         master_prompt = generate_consultant_prompt(
-            prob_vision, prob_clinical, final_score, selected_symptoms, curb65_score
+            prob_vision, prob_clinical, final_score, selected_symptoms, curb65_score, vision_weight, clinical_weight
         )
 
         return {
@@ -89,7 +130,11 @@ class InferenceService:
             "risk_level": risk_level,
             "heatmap": heatmap_b64,
             "selected_symptoms": selected_symptoms,
-            "master_prompt": master_prompt
+            "master_prompt": master_prompt,
+            "applied_vision_weight": round(vision_weight, 2),
+            "applied_clinical_weight": round(clinical_weight, 2),
+            "curb65_score": curb65_score,
+            "clinical_alerts": clinical_alerts
         }
 
     def _get_risk_level(self, score: float) -> RiskLevel:

@@ -51,6 +51,22 @@ async def predict_with_report(
             le=5
         )
     ] = None,
+    custom_vision_weight: Annotated[
+        float,
+        Form(
+            description="📐 Optional custom weight for vision model (0.0 - 1.0)",
+            ge=0.0,
+            le=1.0
+        )
+    ] = None,
+    custom_clinical_weight: Annotated[
+        float,
+        Form(
+            description="📐 Optional custom weight for clinical model (0.0 - 1.0)",
+            ge=0.0,
+            le=1.0
+        )
+    ] = None,
 ):
     """
     Multimodal Pneumonia Prediction + LLM Diagnostic Review Report.
@@ -72,7 +88,13 @@ async def predict_with_report(
 
     try:
         # Step A: Perform Vision and Clinical Prediction
-        predict_res = inf_service.predict(content, symptoms, curb65_score)
+        predict_res = inf_service.predict(
+            content, 
+            symptoms, 
+            curb65_score, 
+            custom_vision_weight, 
+            custom_clinical_weight
+        )
         
         # Step B: Pass the generated master prompt to the LLM
         master_prompt = predict_res.get("master_prompt")

@@ -48,6 +48,32 @@ class DiagnosisResponse(BaseModel):
         None,
         description="Pre-formatted professional prompt for an LLM medical review board based on current results"
     )
+    applied_vision_weight: float = Field(
+        0.7,
+        description="The actual vision weight applied for this calculation",
+        ge=0.0,
+        le=1.0,
+        examples=[0.7]
+    )
+    applied_clinical_weight: float = Field(
+        0.3,
+        description="The actual clinical weight applied for this calculation",
+        ge=0.0,
+        le=1.0,
+        examples=[0.3]
+    )
+    curb65_score: Optional[int] = Field(
+        None,
+        description="The CURB-65 score recorded for this diagnosis",
+        ge=0,
+        le=5,
+        examples=[3]
+    )
+    clinical_alerts: List[str] = Field(
+        default_factory=list,
+        description="List of clinical alerts or critical findings extracted from symptoms",
+        examples=[["CRITICAL: Severe breathlessness with fast heart rate. Risk of acute respiratory failure."]]
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -56,7 +82,11 @@ class DiagnosisResponse(BaseModel):
                 "clinical_probability": 0.72,
                 "final_score": 0.798,
                 "risk_level": "HIGH",
-                "heatmap": "base64_encoded_image_string_here"
+                "heatmap": "base64_encoded_image_string_here",
+                "applied_vision_weight": 0.7,
+                "applied_clinical_weight": 0.3,
+                "curb65_score": 3,
+                "clinical_alerts": []
             }
         }
     )

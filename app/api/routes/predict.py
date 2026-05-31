@@ -41,6 +41,30 @@ async def predict(
             examples=["fever,cough,chest_pain"]
         )
     ] = "",
+    curb65_score: Annotated[
+        int,
+        Form(
+            description="🧮 Optional doctor-evaluated CURB-65 clinical severity score (0-5)",
+            ge=0,
+            le=5
+        )
+    ] = None,
+    custom_vision_weight: Annotated[
+        float,
+        Form(
+            description="📐 Optional custom weight for vision model (0.0 - 1.0)",
+            ge=0.0,
+            le=1.0
+        )
+    ] = None,
+    custom_clinical_weight: Annotated[
+        float,
+        Form(
+            description="📐 Optional custom weight for clinical model (0.0 - 1.0)",
+            ge=0.0,
+            le=1.0
+        )
+    ] = None,
 ):
     """
     Multimodal Pneumonia Prediction Endpoint.
@@ -65,7 +89,13 @@ async def predict(
 
     try:
         # Perform Inference
-        result = service.predict(content, symptoms)
+        result = service.predict(
+            content, 
+            symptoms, 
+            curb65_score, 
+            custom_vision_weight, 
+            custom_clinical_weight
+        )
         
         latency = (time.time() - request_start) * 1000
         logger.info(f"Prediction successful for {file.filename}. Latency: {latency:.2f}ms")

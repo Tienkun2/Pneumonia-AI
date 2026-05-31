@@ -151,13 +151,13 @@ class LLMService:
                 f"LƯU Ý: Không thể tạo báo cáo bằng LLM thực tế do lỗi suy luận ({str(e)}).\n\n"
                 f"{self._generate_simulation_report(prompt)}"
             ), True
-
     def _generate_simulation_report(self, prompt: str) -> str:
         """Generates a high-quality simulation report mimicking the fine-tuned LLM output."""
         vision_prob = "N/A"
         clinical_prob = "N/A"
         final_score = "N/A"
         symptoms_str = "Không có"
+        curb_str = "Chưa đánh giá"
 
         # Extract values from the prompt using basic string parsing
         for line in prompt.split("\n"):
@@ -169,6 +169,8 @@ class LLMService:
                 final_score = line.split(":")[-1].strip()
             elif "Triệu chứng khai báo" in line:
                 symptoms_str = line.split(":")[-1].strip()
+            elif "Thang điểm lâm sàng CURB-65" in line:
+                curb_str = line.split(":")[-1].strip()
 
         # Parse score to numeric for conditional assessment text
         try:
@@ -176,6 +178,22 @@ class LLMService:
         except ValueError:
             score_num = 0.0
 
+        # Rule-based diagnostics based on symptoms
+        diag_notes = []
+        lower_symptoms = symptoms_str.lower()
+        if "rusty_sputum" in lower_symptoms:
+            diag_notes.append("Đặc biệt ghi nhận triệu chứng đờm màu rỉ sắt, đây là dấu hiệu lâm sàng điển hình chỉ điểm sự hiện diện của phế cầu khuẩn (Streptococcus pneumoniae).")
+        if "high_fever" in lower_symptoms and "cough" in lower_symptoms and "phlegm" in lower_symptoms:
+            diag_notes.append("Tập hợp triệu chứng sốt cao, ho kèm đờm hướng nhiều đến bệnh cảnh Viêm phổi điển hình (Typical Pneumonia) do vi khuẩn.")
+        elif "cough" in lower_symptoms and "fatigue" in lower_symptoms and "high_fever" not in lower_symptoms:
+            diag_notes.append("Bệnh cảnh có triệu chứng ho khan, mệt mỏi nhưng không sốt cao, gợi ý khả năng Viêm phổi không điển hình (Atypical Pneumonia) do Mycoplasma hoặc Chlamydia.")
+        
+        if "breathlessness" in lower_symptoms or "fast_heart_rate" in lower_symptoms:
+            diag_notes.append("Có biểu hiện khó thở hoặc nhịp tim nhanh, cần cảnh giác nguy cơ suy hô hấp cấp hoặc biến chứng nhiễm trùng huyết.")
+        
+        diag_interpretation = " ".join(diag_notes) if diag_notes else "Biểu hiện triệu chứng lâm sàng ở mức độ thông thường, cần theo dõi sát."
+
+        # Action guidelines
         if score_num >= settings.HIGH_RISK_THRESHOLD:
             assessment = "Cảnh báo Nguy cơ Cao. Sự tương quan chặt chẽ giữa hình ảnh tổn thương phổi và triệu chứng lâm sàng cho thấy khả năng viêm phổi đang diễn tiến cấp tính."
             actions = (
@@ -198,6 +216,21 @@ class LLMService:
                 "- **Theo dõi diễn tiến bệnh**: Tái khám sau 3 ngày hoặc khi có biểu hiện sốt cao không hạ hoặc khó thở tăng lên."
             )
 
+        # Extract weights from prompt
+        vision_weight_pct = "70%"
+        clinical_weight_pct = "30%"
+        for line in prompt.split("\n"):
+            if "Vision AI" in line and "Trọng số" in line:
+                vision_weight_pct = line.split(":")[-1].strip()
+            elif "Clinical AI" in line and "Trọng số" in line:
+                clinical_weight_pct = line.split(":")[-1].strip()
+
+        criticism = f"Phân bổ trọng số {vision_weight_pct} Hình ảnh và {clinical_weight_pct} Lâm sàng là phù hợp và an toàn đối với ca bệnh hiện tại."
+        if "50%" in clinical_weight_pct:
+            criticism += " Cơ chế tăng trọng số lâm sàng lên 50% được kích hoạt tự động do điểm số lâm sàng/CURB-65 thuộc nhóm nguy cấp, giúp nâng cao tính an toàn và giảm thiểu rủi ro âm tính giả từ hình ảnh học."
+        else:
+            criticism += " Hình ảnh X-quang giữ vai trò chủ đạo để xác định tổn thương thực thể ở nhu mô phổi, tránh bỏ sót các ca viêm phổi ít triệu chứng cơ năng."
+
         report = f"""## 🏥 HỘI ĐỒNG THẨM ĐỊNH AI MULTIMODAL - BÁO CÁO PHÂN TÍCH LÂM SÀNG
 
 *(Báo cáo mô phỏng do chạy trên CPU không có tăng tốc phần cứng GPU)*
@@ -209,15 +242,17 @@ class LLMService:
 - **Nhận định chung:** {assessment}
 
 ### 2. Biện Giải Hình Ảnh Học & Grad-CAM:
-- Vùng nhận diện tổn thương trên phim X-quang ngực thẳng (vùng đỏ/cam trên bản đồ Grad-CAM) tập trung phân tích tại khu vực phế trường. Phù hợp với các dấu hiệu thâm nhiễm phế nang (alveolar infiltration), bóng mờ rải rác hoặc hội tụ đường phế quản. Dấu hiệu này đòi hỏi sự đối chiếu cẩn trọng với các triệu chứng lâm sàng khai báo ({symptoms_str}).
+- Vùng nhận diện tổn thương trên phim X-quang ngực thẳng (vùng đỏ/cam trên bản đồ Grad-CAM) tập trung phân tích tại khu vực phế trường. Phù hợp với các dấu hiệu thâm nhiễm phế nang (alveolar infiltration), bóng mờ rải rác hoặc hội tụ đường phế quản.
+- **Diễn giải triệu chứng lâm sàng:** {diag_interpretation}
 
 ### 3. Khuyến Nghị Lâm Sàng Tiếp Theo:
 {actions}
 
-### 4. Phê Bình Tỷ Lệ Trọng Số Phân Bổ (7:3):
-- Phân bổ trọng số 70% Hình ảnh và 30% Lâm sàng là phù hợp và an toàn đối với ca bệnh hiện tại. Hình ảnh X-quang giữ vai trò chủ đạo để xác định tổn thương thực thể ở nhu mô phổi, tránh bỏ sót các ca viêm phổi không điển hình (atypical pneumonia) hoặc ít triệu chứng cơ năng. Tuy nhiên, chẩn đoán cuối cùng phải luôn được cá nhân hóa bởi bác sĩ điều trị dựa trên diễn tiến thực tế của bệnh nhân.
+### 4. Phê Bình Tỷ Lệ Trọng Số Phân Bổ:
+- {criticism} Tuy nhiên, chẩn đoán cuối cùng phải luôn được cá nhân hóa bởi bác sĩ điều trị dựa trên diễn tiến thực tế của bệnh nhân.
 """
         return report
+
 
     def generate_chat_response(self, messages: list) -> Tuple[str, bool]:
         """
