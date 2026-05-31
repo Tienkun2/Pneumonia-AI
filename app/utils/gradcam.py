@@ -47,7 +47,8 @@ class GradCAM:
             self.model.zero_grad()
             
             # Forward pass in standard float32 (disabling autocast to ensure hooks trigger on GPU)
-            with torch.amp.autocast(device_type="cuda", enabled=False):
+            device_type = "cuda" if device.type == "cuda" else "cpu"
+            with torch.amp.autocast(device_type=device_type, enabled=False):
                 input_tensor = input_tensor.float()
                 output = self.model(input_tensor)
             

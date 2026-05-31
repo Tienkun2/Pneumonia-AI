@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     CLINICAL_WEIGHT: float = 0.3
     
     HIGH_RISK_THRESHOLD: float = 0.7
-    MEDIUM_RISK_THRESHOLD: float = 0.345
+    MEDIUM_RISK_THRESHOLD: float = 0.35
     
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 

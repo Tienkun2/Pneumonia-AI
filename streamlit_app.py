@@ -19,22 +19,22 @@ st.markdown("---")
 # --- 2. NẠP CÁC MODEL ---
 @st.cache_resource
 def load_all_models():
-    # A. Model X-quang (Cấu trúc Super Model 512 neurons)
-    v_model = models.densenet121(weights=None)
-    num_ftrs = v_model.classifier.in_features
-    v_model.classifier = nn.Sequential(
-        nn.Linear(num_ftrs, 512),
-        nn.ReLU(),
-        nn.Dropout(0.4),
-        nn.Linear(512, 1)
-    )
-    # Nạp bản ULTRA - Bản nhìn đúng phổi nhất
-    v_model.load_state_dict(torch.load('pneumonia_final_ultra.pth', map_location=torch.device('cpu')))
+    # A. Model X-quang (Cấu trúc EfficientNet-B4)
+    v_model = models.efficientnet_b4(weights=None)
+    v_model.classifier[1] = nn.Linear(v_model.classifier[1].in_features, 1)
+    # Nạp bản G4 - Bản nhìn đúng phổi nhất
+    v_model.load_state_dict(torch.load('app/models/vision/g4_final.pth', map_location=torch.device('cpu')))
+    
+    # Tắt inplace để chạy Grad-CAM không bị lỗi lưu vết gradient
+    for m in v_model.modules():
+        if isinstance(m, nn.SiLU):
+            m.inplace = False
+            
     v_model.eval()
 
     # B. Model Lâm sàng
-    s_model = joblib.load('symptom_model_refined.pkl')
-    s_list = joblib.load('symptoms_list_refined.pkl')
+    s_model = joblib.load('app/models/clinical/symptom_model_refined.pkl')
+    s_list = joblib.load('app/models/clinical/symptoms_list_refined.pkl')
     
     return v_model, s_model, s_list
 
@@ -62,10 +62,9 @@ with col2:
     if uploaded_file:
         image = Image.open(uploaded_file).convert('RGB')
         
-        # Tiền xử lý: BẮT BUỘC CÓ CENTERCROP ĐỂ AI KHÔNG NHÌN LỆCH VÀO NHÃN L/R
+        # Tiền xử lý: Sử dụng 448x448 đồng nhất với cấu hình train G4
         transform = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.Resize((448, 448)),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
@@ -73,28 +72,30 @@ with col2:
         input_tensor = transform(image).unsqueeze(0)
         
         # --- THỰC THI DỰ ĐOÁN & GRAD-CAM ---
-        target_layers = [vision_model.features.norm5]
+        target_layers = [vision_model.features[8]]
         cam = GradCAM(model=vision_model, target_layers=target_layers)
         targets = [BinaryClassifierOutputTarget(0)]
         
         grayscale_cam = cam(input_tensor=input_tensor, targets=targets)[0, :]
         
-        # Chuẩn bị ảnh hiển thị (Crop tương ứng với AI nhìn)
-        img_res = np.array(image.resize((256, 256)))
-        # Thủ thuật crop ảnh để hiển thị heatmap chuẩn
-        start = (256 - 224) // 2
-        img_cropped = img_res[start:start+224, start:start+224] / 255.0
+        # Chuẩn bị ảnh hiển thị dạng mảng float 448x448 phù hợp với input của EfficientNet
+        img_cropped = np.array(image.resize((448, 448))) / 255.0
         
         # Đè Heatmap lên ảnh
         cam_image = show_cam_on_image(img_cropped, grayscale_cam, use_rgb=True)
         
         with torch.no_grad():
             logits = vision_model(input_tensor)
-            prob_vision = torch.sigmoid(logits).item() # Chuyển Logit sang %
+            raw_prob = torch.sigmoid(logits).item()
+            # Hiệu chỉnh (Calibration): Ngưỡng G4 tối ưu là 0.514
+            if raw_prob < 0.514:
+                prob_vision = (raw_prob / 0.514) * 0.5
+            else:
+                prob_vision = 0.5 + ((raw_prob - 0.514) / (1.0 - 0.514)) * 0.5
         
         # Hiển thị kết quả X-quang
         st.image(cam_image, caption='Giải thích AI: Vùng tập trung phân tích (Grad-CAM)', use_column_width=True)
-        st.metric("Độ tin cậy X-quang", f"{prob_vision*100:.1f}%")
+        st.metric("Độ tin cậy X-quang (Đã hiệu chỉnh)", f"{prob_vision*100:.1f}%")
         st.progress(prob_vision)
 
 # --- 4. TỔNG HỢP KẾT LUẬN ---

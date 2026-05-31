@@ -45,15 +45,16 @@ class InferenceService:
         input_tensor, img_cropped = preprocess_image(image_bytes)
         
         with torch.no_grad():
-            with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+            device_type = "cuda" if settings.DEVICE == "cuda" else "cpu"
+            with torch.amp.autocast(device_type=device_type, enabled=torch.cuda.is_available()):
                 logits = self.vision_model(input_tensor.to(settings.DEVICE))
                 raw_prob_vision = torch.sigmoid(logits).item()
 
-        # Calibration: G4 optimum threshold is 0.345. We map 0.345 -> 0.5 for scaling balance
-        if raw_prob_vision < 0.345:
-            prob_vision = (raw_prob_vision / 0.345) * 0.5
+        # Calibration: G4 optimum threshold is 0.514. We map 0.514 -> 0.5 for scaling balance
+        if raw_prob_vision < 0.514:
+            prob_vision = (raw_prob_vision / 0.514) * 0.5
         else:
-            prob_vision = 0.5 + ((raw_prob_vision - 0.345) / (1.0 - 0.345)) * 0.5
+            prob_vision = 0.5 + ((raw_prob_vision - 0.514) / (1.0 - 0.514)) * 0.5
 
         # 2. Grad-CAM Visualization
         heatmap_b64 = None
