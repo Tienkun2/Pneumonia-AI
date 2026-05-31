@@ -61,8 +61,8 @@ class InferenceService:
             logger.info(f"Targeting logic for Grad-CAM (Raw: {raw_prob_vision:.4f}, Calibrated: {prob_vision:.4f})...")
             # Force grad for visualization
             input_tensor.requires_grad = True
-            # For EfficientNet-B4, features[8] is the last conv layer before pooling
-            gcam = GradCAM(self.vision_model, self.vision_model.features[8])
+            # For EfficientNet-B4, features[8][0] is the last conv layer (leaf layer) before pooling
+            gcam = GradCAM(self.vision_model, self.vision_model.features[8][0])
             heatmap_b64 = gcam.generate(input_tensor, img_cropped)
             
             if heatmap_b64:
