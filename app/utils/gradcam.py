@@ -71,10 +71,10 @@ class GradCAM:
             v_max = np.max(cam)
             if v_max > 0:
                 cam = cam / v_max
-                # HIGH-CONTRAST SHARPENING (Power 4 for Hilum focus)
-                cam = np.power(cam, 4.0)
+                # HIGH-CONTRAST SHARPENING (Power 2 for smoother visualization)
+                cam = np.power(cam, 2.0)
                 # Noise filtering
-                cam = np.where(cam > 0.1, cam, 0)
+                cam = np.where(cam > 0.02, cam, 0)
             else:
                 logger.warning("Zero CAM activations.")
                 return None
