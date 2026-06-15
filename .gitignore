@@ -8,8 +8,8 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Models and data (if you don't want to push large model files, though you might want to if it's small)
-# *.pth
+# Models and data — large vision weights excluded, small clinical pkl included
+*.pth
 # *.pkl
 
 # OS generated files

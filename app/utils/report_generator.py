@@ -36,23 +36,29 @@ def generate_consultant_prompt(
 Bạn là một Hội đồng chuyên gia y khoa cấp cao, bao gồm 01 Bác sĩ chẩn đoán hình ảnh (Radiologist) và 01 Chuyên gia dữ liệu lâm sàng. Nhiệm vụ của bạn là thẩm định kết quả từ một hệ thống AI Multimodal (Kết hợp X-quang và Lâm sàng) cùng các thang điểm lâm sàng của Bác sĩ.
 
 ### 2. THÔNG TIN HỆ THỐNG:
-- Vision AI (EfficientNet-B4, 448px): Trọng số {vision_weight * 100:.0f}%.
-- Clinical AI (Random Forest): Trọng số {clinical_weight * 100:.0f}%.
-- Logic Tổng hợp: P_Final = (P_Vision * {vision_weight:.2f}) + (P_Clinical * {clinical_weight:.2f}).
+- Vision AI (EfficientNet-B4, 448px, PSPNet lung-masked): P_img → sigmoid(logit).
+- Clinical AI (Logistic Regression, 10 features): P_sym → predict_proba.
+- Logic Tổng hợp (Calibrated Fusion – Log-odds):
+    nudge = W_sym × (logit(P_sym) − logit(P_sym_empty)), cap 0..1
+    P_fused = sigmoid(logit(P_img) + nudge + curb65_nudge)
+  W_sym = {clinical_weight:.2f} (triệu chứng chỉ nâng xác suất, không hạ).
+- Trọng số Vision AI: {vision_weight*100:.0f}%
+- Trọng số Clinical AI: {clinical_weight*100:.0f}%
 
 ### 3. DỮ LIỆU CA BỆNH HIỆN TẠI:
-- **Xác suất Vision AI**: {vision_prob * 100:.1f}%
-- **Xác suất Clinical AI**: {clinical_prob * 100:.1f}%
-- **Xác suất Tổng hợp (Final)**: {final_score * 100:.1f}%
+- **Xác suất Vision AI (P_img)**: {vision_prob * 100:.1f}%
+- **Xác suất Clinical AI (P_sym)**: {clinical_prob * 100:.1f}%
+- **Xác suất Tổng hợp (P_fused)**: {final_score * 100:.1f}%
+- **Ngưỡng quyết định (τ)**: 66.5%
 - **Vùng nhận diện Grad-CAM**: {gradcam_hint}
 - **Triệu chứng khai báo**: {symptoms_str}
 - **Thang điểm lâm sàng CURB-65**: {curb_str}
 
 ### 4. YÊU CẦU ĐỐI VỚI HỘI ĐỒNG:
-1. **Phân tích sự đồng thuận**: Đánh giá mức độ khớp nhau giữa Hình ảnh, Triệu chứng Lâm sàng của AI và Thang điểm CURB-65 của bác sĩ. Chỉ ra mâu thuẫn nếu có (ví dụ: AI chẩn đoán rủi ro cao nhưng điểm CURB-65 thấp).
-2. **Biện giải Grad-CAM**: Dựa trên các vùng đỏ trên heatmap, giải thích ý nghĩa y khoa (ví dụ: Silhouette sign, Hilar congestion, hoặc Infiltration).
-3. **Khuyến nghị cuối cùng & Xử trí**: Đưa ra hướng xử trí cụ thể dựa trên sự kết hợp giữa kết quả AI và thang điểm CURB-65 (ví dụ: Điều trị ngoại trú, Nhập viện nội trú hay ICU).
-4. **Phê bình trọng số**: Với dữ liệu này, tỉ lệ {vision_weight * 100:.0f}:{clinical_weight * 100:.0f} có đang thực sự an toàn cho bệnh nhân không?
+1. **Phân tích sự đồng thuận**: Đánh giá mức độ khớp nhau giữa P_img, P_sym và thang điểm CURB-65. Chỉ ra mâu thuẫn nếu có (ví dụ: Vision AI nghi ngờ cao nhưng triệu chứng ít, hoặc ngược lại).
+2. **Biện giải Grad-CAM**: Dựa trên vùng kích hoạt, giải thích ý nghĩa y khoa (Silhouette sign, Hilar congestion, Air bronchogram, Infiltration...).
+3. **Khuyến nghị cuối cùng & Xử trí**: Đưa ra hướng xử trí cụ thể dựa trên P_fused và CURB-65 (Điều trị ngoại trú, Nhập viện nội trú hay ICU).
+4. **Đánh giá tính hợp lý của Fusion**: Với ca bệnh này, việc nudge từ triệu chứng có phù hợp không? Có nguy cơ bỏ sót (false negative) không?
 
 **Ngôn ngữ phản hồi**: Tiếng Việt, chuyên nghiệp, khắt khe nhưng khách quan.
 """

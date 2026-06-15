@@ -220,9 +220,9 @@ class LLMService:
         vision_weight_pct = "70%"
         clinical_weight_pct = "30%"
         for line in prompt.split("\n"):
-            if "Vision AI" in line and "Trọng số" in line:
+            if "Trọng số Vision AI" in line and ":" in line:
                 vision_weight_pct = line.split(":")[-1].strip()
-            elif "Clinical AI" in line and "Trọng số" in line:
+            elif "Trọng số Clinical AI" in line and ":" in line:
                 clinical_weight_pct = line.split(":")[-1].strip()
 
         criticism = f"Phân bổ trọng số {vision_weight_pct} Hình ảnh và {clinical_weight_pct} Lâm sàng là phù hợp và an toàn đối với ca bệnh hiện tại."

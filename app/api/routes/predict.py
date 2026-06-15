@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Form, Depends
-from typing import Annotated
+from typing import Annotated, List
 import time
 import logging
 from app.schemas.response import DiagnosisResponse, ErrorResponse
@@ -105,4 +105,105 @@ async def predict(
     except Exception as e:
         logger.error(f"Inference failed for {file.filename}: {str(e)}")
         raise PredictionException(f"Diagnosis failed: {str(e)}")
+
+from fastapi import HTTPException
+import json
+from datetime import datetime, timezone
+
+@router.post(
+    "/diagnose",
+    summary="🩺 Multimodal AI Pneumonia Diagnosis Endpoint",
+    description="Analyzes Chest X-ray image and clinical symptoms using EfficientNet-B4 + Logistic Regression and Calibrated Fusion."
+)
+async def diagnose(
+    service: Annotated[InferenceService, Depends(lambda: inference_service)],
+    patient_id: Annotated[str, Form(description="Unique patient identifier")] = None,
+    xray_image: Annotated[UploadFile, File(description="Raw Chest X-ray image (JPG/PNG)")] = None,
+    symptoms: Annotated[List[str], Form(description="List of patient symptoms")] = None
+):
+    request_start = time.time()
+    
+    # 1. Validation: check missing required fields -> 422 Unprocessable Entity
+    if patient_id is None or not patient_id.strip():
+        raise HTTPException(status_code=422, detail="Missing required field: patient_id")
+    if xray_image is None:
+        raise HTTPException(status_code=422, detail="Missing required field: xray_image")
+        
+    # 2. Validation: check image format -> 400 Bad Request
+    ext = xray_image.filename.split(".")[-1].lower() if "." in xray_image.filename else ""
+    if ext not in settings.ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Invalid image format. Allowed: {settings.ALLOWED_EXTENSIONS}")
+        
+    # 3. Validation: check image size -> 400 Bad Request
+    content = await xray_image.read()
+    if len(content) > settings.MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"File too large. Max size: {settings.MAX_FILE_SIZE // (1024*1024)}MB")
+        
+    # 4. Parse symptoms list robustly
+    parsed_symptoms = []
+    if symptoms is not None:
+        for s in symptoms:
+            s_stripped = s.strip()
+            if not s_stripped:
+                continue
+            if s_stripped.startswith('[') and s_stripped.endswith(']'):
+                try:
+                    parsed_symptoms.extend(json.loads(s_stripped))
+                except Exception:
+                    # Fallback parse
+                    parsed_symptoms.extend([item.strip().strip("'\"") for item in s_stripped[1:-1].split(",") if item.strip()])
+            else:
+                parsed_symptoms.extend([item.strip() for item in s_stripped.split(",") if item.strip()])
+                
+    # 5. Validation: check symptoms are valid snake_case codes -> 400 Bad Request
+    for sym in parsed_symptoms:
+        if sym not in settings.SELECTED_FEATURES:
+            raise HTTPException(status_code=400, detail=f"Invalid symptom code: {sym}. Must be one of {settings.SELECTED_FEATURES}")
+            
+    try:
+        # Convert parsed symptoms to comma-separated string for inference service
+        symptoms_str = ",".join(parsed_symptoms)
+        
+        # Run prediction
+        predict_res = service.predict(content, symptoms_str)
+        
+        # Prepare response matching specification (§4.2)
+        xray_block = {
+            "p_img": round(predict_res["p_img"], 3),
+        }
+        if predict_res.get("heatmap"):
+            xray_block["gradcam_overlay"] = predict_res["heatmap"]
+        if predict_res.get("lung_focus_ratio") is not None:
+            xray_block["lung_focus_ratio"] = predict_res["lung_focus_ratio"]
+
+        response_data = {
+            "patient_id": patient_id,
+            "xray": xray_block,
+            "symptom": {
+                "p_sym": round(predict_res["p_sym"], 3),
+                "active_symptoms": parsed_symptoms
+            },
+            "fusion": {
+                "nudge_logodds": round(predict_res["nudge_logodds"], 3),
+                "p_fused": round(predict_res["p_fused"], 3),
+                "threshold": settings.TAU_IMG,
+                "decision": predict_res["decision"],
+                "decision_label": predict_res["decision_label"]
+            },
+            "model_versions": {
+                "xray": "effnetb4-g4m",
+                "seg": "xrv-pspnet",
+                "symptom": "lr-v1",
+                "fusion": "rule-v2"
+            },
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        }
+        
+        latency = (time.time() - request_start) * 1000
+        logger.info(f"Diagnosis endpoint successful for patient {patient_id}. Latency: {latency:.2f}ms")
+        return response_data
+    except Exception as e:
+        logger.error(f"Diagnose endpoint inference failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal prediction error: {str(e)}")
+
 
