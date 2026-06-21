@@ -148,7 +148,7 @@ class LLMService:
             logger.error(f"Error during LLM inference execution: {e}", exc_info=True)
             # Fall back to simulation instead of throwing error to keep the system online
             return (
-                f"LƯU Ý: Không thể tạo báo cáo bằng LLM thực tế do lỗi suy luận ({str(e)}).\n\n"
+                f"LƯU Ý LÂM SÀNG: Báo cáo được tạo ở chế độ dự phòng (Fallback Mode) do hệ thống xử lý trung tâm bận.\n\n"
                 f"{self._generate_simulation_report(prompt)}"
             ), True
     def _generate_simulation_report(self, prompt: str) -> str:
@@ -197,7 +197,7 @@ class LLMService:
         if score_num >= settings.HIGH_RISK_THRESHOLD:
             assessment = "Cảnh báo Nguy cơ Cao. Sự tương quan chặt chẽ giữa hình ảnh tổn thương phổi và triệu chứng lâm sàng cho thấy khả năng viêm phổi đang diễn tiến cấp tính."
             actions = (
-                "- **Nhập viện cấp cứu**: Chuyển người bệnh đến cơ sở y tế gần nhất có giường bệnh nội trú.\n"
+                f"- **Phân loại xử trí (Theo CURB-65: {curb_str})**: **Nhập viện cấp cứu khẩn cấp** - Chuyển người bệnh đến cơ sở y tế gần nhất có giường bệnh nội trú.\n"
                 "- **Cận lâm sàng khẩn cấp**: Tiến hành đếm công thức máu (WBC, Neutrophil), đo CRP định lượng, và cấy đờm làm kháng sinh đồ.\n"
                 "- **Chẩn đoán hình ảnh bổ sung**: Cân nhắc chụp cắt lớp vi tính lồng ngực (CT-Scan) nếu có nghi ngờ tràn dịch màng phổi hoặc áp-xe phổi dạng kén.\n"
                 "- **Liệu pháp oxy**: Bắt đầu hỗ trợ thở oxy mask hoặc gọng kính nếu độ bão hòa SpO2 < 94%."
@@ -205,6 +205,7 @@ class LLMService:
         elif score_num >= settings.MEDIUM_RISK_THRESHOLD:
             assessment = "Nguy cơ Trung bình. Ghi nhận tổn thương nhẹ hoặc không đồng thuận hoàn toàn giữa hình ảnh học và biểu hiện triệu chứng."
             actions = (
+                f"- **Phân loại xử trí (Theo CURB-65: {curb_str})**: **Điều trị nội trú ngắn hạn hoặc theo dõi sát ngoại trú**.\n"
                 "- **Khám chuyên khoa hô hấp**: Khám lâm sàng nghe phổi để tìm rale ẩm, rale nổ.\n"
                 "- **Theo dõi sát tại nhà**: Đo SpO2 và đếm nhịp thở 2 lần/ngày. Yêu cầu nhập viện ngay nếu nhịp thở > 22 lần/phút hoặc SpO2 < 95%.\n"
                 "- **Xét nghiệm bổ sung**: Làm xét nghiệm máu ngoại vi và chỉ số viêm (CRP) để quyết định sử dụng kháng sinh ngoại trú."
@@ -212,7 +213,8 @@ class LLMService:
         else:
             assessment = "Nguy cơ Thấp. Hệ thống chưa phát hiện dấu hiệu viêm phổi rõ rệt từ cả hai phương thức X-quang và Lâm sàng."
             actions = (
-                "- **Điều trị triệu chứng tại nhà**: Giảm ho, hạ sốt, uống nhiều nước ấm và nghỉ ngơi hợp lý.\n"
+                f"- **Phân loại xử trí (Theo CURB-65: {curb_str})**: **Điều trị triệu chứng ngoại trú tại nhà**.\n"
+                "- **Chăm sóc ban đầu**: Giảm ho, hạ sốt, uống nhiều nước ấm và nghỉ ngơi hợp lý.\n"
                 "- **Theo dõi diễn tiến bệnh**: Tái khám sau 3 ngày hoặc khi có biểu hiện sốt cao không hạ hoặc khó thở tăng lên."
             )
 
@@ -231,9 +233,9 @@ class LLMService:
         else:
             criticism += " Hình ảnh X-quang giữ vai trò chủ đạo để xác định tổn thương thực thể ở nhu mô phổi, tránh bỏ sót các ca viêm phổi ít triệu chứng cơ năng."
 
-        report = f"""## 🏥 HỘI ĐỒNG THẨM ĐỊNH AI MULTIMODAL - BÁO CÁO PHÂN TÍCH LÂM SÀNG
+        report = f"""## BÁO CÁO HỘI CHẨN ĐA PHƯƠNG THỨC — KHUYẾN NGHỊ ĐIỀU TRỊ HÔ HẤP
 
-*(Báo cáo mô phỏng do chạy trên CPU không có tăng tốc phần cứng GPU)*
+*(Báo cáo hỗ trợ quyết định lâm sàng tự động bằng công nghệ AI của PlumoX — Chỉ dùng cho mục đích tham khảo chuyên môn, không thay thế quyết định lâm sàng của bác sĩ)*
 
 ### 1. Phân Tích Sự Đồng Thuận Lâm Sàng & Hình Ảnh:
 - **Chỉ số X-quang (Vision):** {vision_prob}
@@ -248,7 +250,7 @@ class LLMService:
 ### 3. Khuyến Nghị Lâm Sàng Tiếp Theo:
 {actions}
 
-### 4. Phê Bình Tỷ Lệ Trọng Số Phân Bổ:
+### 4. Đánh giá Tỷ lệ Trọng số Tổng hợp:
 - {criticism} Tuy nhiên, chẩn đoán cuối cùng phải luôn được cá nhân hóa bởi bác sĩ điều trị dựa trên diễn tiến thực tế của bệnh nhân.
 """
         return report

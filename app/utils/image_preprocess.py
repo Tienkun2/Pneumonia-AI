@@ -14,7 +14,7 @@ def _keep_two_lungs(binary: np.ndarray) -> np.ndarray:
     """
     Post-process PSPNet/CV2 mask:
       1. Giữ đúng 2 thành phần liên thông lớn nhất (= 2 lá phổi)
-      2. Fill holes bên trong mỗi lá phổi
+      2. Fill holes bên trong mỗi lá phổi bằng contour filling thay vì convexHull để giữ biên tự nhiên.
     → loại bỏ mảnh vụn, không còn đen tùm lum bên trong phổi.
     """
     n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
@@ -30,16 +30,14 @@ def _keep_two_lungs(binary: np.ndarray) -> np.ndarray:
     clean = np.zeros_like(binary, dtype=np.uint8)
     for _, idx in areas[:2]:
         component = (labels == idx).astype(np.uint8)
-        # Convex hull mỗi lá phổi → solid đặc, không jagged edge, không lỗ nội bộ.
-        # Cần thiết cho AP/portable X-ray trẻ em mà PSPNet cho mask răng cưa.
+        # Điền kín lỗ rỗng bên trong phổi bằng cách vẽ toàn bộ contour ngoài cùng
         contours, _ = cv2.findContours(component, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
-            hull = cv2.convexHull(contours[0])
-            cv2.fillConvexPoly(clean, hull, 1)
+            cv2.drawContours(clean, contours, -1, 1, thickness=cv2.FILLED)
         else:
             clean[labels == idx] = 1
 
-    # morphClose nhỏ để smooth cạnh convex hull
+    # morphClose nhỏ để smooth cạnh
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
     clean = cv2.morphologyEx(clean, cv2.MORPH_CLOSE, k)
     return clean
@@ -84,28 +82,10 @@ def get_lung_mask(img_pil: Image.Image, out_size: int = 448) -> np.ndarray:
             with torch.no_grad():
                 out = torch.sigmoid(seg(t))
 
-            lung = np.zeros((512, 512), dtype=np.uint8)
-            for ch in [ll_idx, rl_idx]:
-                prob = out[0, ch].cpu().numpy().astype(np.float32)
-                prob = cv2.GaussianBlur(prob, (41, 41), 0)
-                binary = (prob > 0.20).astype(np.uint8)
-                if binary.sum() < 200:
-                    continue
-
-                # Lấy component lớn nhất → convexHull chỉ trên vùng đó
-                # (tránh stray blobs xa làm hull quá rộng như khi dùng tất cả pixel)
-                n_lab, labs, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
-                if n_lab <= 1:
-                    continue
-                largest_idx = max(range(1, n_lab), key=lambda i: stats[i, cv2.CC_STAT_AREA])
-                component = (labs == largest_idx).astype(np.uint8)
-
-                ys, xs = np.where(component > 0)
-                if len(ys) < 3:
-                    continue
-                pts = np.column_stack([xs, ys]).reshape(-1, 1, 2).astype(np.int32)
-                hull = cv2.convexHull(pts)
-                cv2.fillConvexPoly(lung, hull, 1)
+            # Sum left and right lung probabilities
+            lung_prob = (out[0, ll_idx] + out[0, rl_idx]).cpu().numpy()
+            # Threshold at 0.5
+            lung = (lung_prob > 0.5).astype(np.uint8)
 
             if lung.sum() < 1000:
                 raise ValueError(f"PSPNet detected too little lung area ({lung.sum()} px), using fallback")

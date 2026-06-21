@@ -98,6 +98,8 @@ class GradCAM:
                         )
                     ).astype(bool)
                 lung_focus_ratio = float(cam_resized[mask_resized].sum() / (cam_resized.sum() + 1e-8))
+                # Clear CAM heat outside of the lung mask to prevent upsampling bleed/smear on display
+                cam_resized[~mask_resized] = 0
 
             # Build overlay: Jet colormap via alpha paste
             heatmap_pil = Image.fromarray((cam_resized * 255).astype(np.uint8))

@@ -28,7 +28,7 @@ def run_api_tests():
     assert "symptom" in res_json
     assert "fusion" in res_json
     assert "model_versions" in res_json
-    assert res_json["model_versions"]["lung_mask_engine"] == "pip_lungmask_u-net_v1"
+    assert res_json["model_versions"]["seg"] == "xrv-pspnet"
     print("Test A Passed!")
     
     # Test Case B: Valid request with symptoms array
