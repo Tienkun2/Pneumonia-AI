@@ -235,7 +235,7 @@ class LLMService:
 
         report = f"""## BÁO CÁO HỘI CHẨN ĐA PHƯƠNG THỨC — KHUYẾN NGHỊ ĐIỀU TRỊ HÔ HẤP
 
-*(Báo cáo hỗ trợ quyết định lâm sàng tự động bằng công nghệ AI của PlumoX — Chỉ dùng cho mục đích tham khảo chuyên môn, không thay thế quyết định lâm sàng của bác sĩ)*
+(Báo cáo hỗ trợ quyết định lâm sàng tự động bằng công nghệ AI của PlumoX — Chỉ dùng cho mục đích tham khảo chuyên môn, không thay thế quyết định lâm sàng của bác sĩ)
 
 ### 1. Phân Tích Sự Đồng Thuận Lâm Sàng & Hình Ảnh:
 - **Chỉ số X-quang (Vision):** {vision_prob}
