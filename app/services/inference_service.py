@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import logging
 import numpy as np
+import time
 from typing import List, Tuple
 from app.dependencies.model_loader import model_loader
 from app.utils.image_preprocess import preprocess_image
@@ -43,7 +44,9 @@ class InferenceService:
 
         # 1. Preprocess — returns (tensor, masked_pil_resized, tta_tensor, lung_mask)
         logger.info("Starting Vision Inference...")
+        t0 = time.perf_counter()
         input_tensor, img_cropped, input_tensor_tta, lung_mask = preprocess_image(image_bytes)
+        t1 = time.perf_counter()
 
         device_str = "cuda" if settings.DEVICE == "cuda" else "cpu"
 
@@ -64,17 +67,31 @@ class InferenceService:
             logger.info(f"TTA applied. p_img={p_img:.4f} (avg of primary + flip)")
         else:
             logger.info(f"Vision p_img={p_img:.4f}")
+        t2 = time.perf_counter()
 
         # 3. Grad-CAM with lung mask for focus ratio
         heatmap_b64 = None
         gradcam_err = None
         lung_focus_ratio = None
+        cam_metrics = {
+            "location_label": "Không khu trú rõ",
+            "distribution_label": "Không rõ",
+            "characteristic_label": "Không khu trú rõ",
+            "foci_count": 0,
+            "foci": [],
+            "attention_in_lung_pct": 0.0,
+            "hot_area_pct": 0.0,
+            "description": "",
+        }
         try:
             logger.info("Generating Grad-CAM...")
             gcam = GradCAM(self.vision_model, self.vision_model.features[8])
-            heatmap_b64, gradcam_err, lung_focus_ratio = gcam.generate(
+            res_cam = gcam.generate(
                 input_tensor, img_cropped, lung_mask
             )
+            heatmap_b64, gradcam_err, lung_focus_ratio, metrics_dict = res_cam
+            if metrics_dict:
+                cam_metrics = metrics_dict
             if heatmap_b64:
                 heatmap_b64 = f"data:image/jpeg;base64,{heatmap_b64}"
                 logger.info(f"Grad-CAM OK. lung_focus_ratio={lung_focus_ratio:.3f}" if lung_focus_ratio is not None else "Grad-CAM OK.")
@@ -84,6 +101,7 @@ class InferenceService:
             import traceback
             gradcam_err = f"Outer error: {str(e)}\n{traceback.format_exc()}"
             logger.error(f"CRITICAL GRAD-CAM ERROR: {gradcam_err}")
+        t3 = time.perf_counter()
 
         # 4. Clinical Inference
         selected_symptoms = parse_comma_symptoms(symptoms_str)
@@ -158,6 +176,13 @@ class InferenceService:
             "curb65_score":          curb65_score,
             "clinical_alerts":       clinical_alerts,
             "gradcam_error":         gradcam_err,
+            # New metrics fields
+            "location_label":        cam_metrics.get("location_label"),
+            "distribution_label":    cam_metrics.get("distribution_label"),
+            "characteristic_label":  cam_metrics.get("characteristic_label"),
+            "attention_in_lung_pct": cam_metrics.get("attention_in_lung_pct"),
+            "hot_area_pct":          cam_metrics.get("hot_area_pct"),
+            "description":           cam_metrics.get("description"),
             # /diagnose endpoint fields
             "p_img":          p_img,
             "p_sym":          p_sym,
@@ -165,7 +190,12 @@ class InferenceService:
             "nudge_logodds":  nudge,
             "decision":       decision,
             "decision_label": decision_label,
+            "threshold":      settings.TAU_IMG,
             "lung_focus_ratio": round(lung_focus_ratio, 3) if lung_focus_ratio is not None else None,
+            # Timings
+            "t_pspnet": t1 - t0,
+            "t_vision": t2 - t1,
+            "t_cam": t3 - t2,
         }
 
     def _get_risk_level(self, score: float) -> RiskLevel:

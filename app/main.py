@@ -10,18 +10,22 @@ from app.core.config import settings
 from app.dependencies.model_loader import model_loader
 
 # Configure Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] [%(request_id)s] %(name)s: %(message)s",
-)
+class RequestIdFormatter(logging.Formatter):
+    def format(self, record):
+        if not hasattr(record, 'request_id'):
+            record.request_id = 'SYSTEM'
+        return super().format(record)
 
-# Custom log filter for request_id
-class RequestIdFilter(logging.Filter):
-    def filter(self, record):
-        record.request_id = getattr(record, 'request_id', 'SYSTEM')
-        return True
+# Setup root logger with custom formatter
+root_logger = logging.getLogger()
+for h in list(root_logger.handlers):
+    root_logger.removeHandler(h)
 
-logging.getLogger().addFilter(RequestIdFilter())
+handler = logging.StreamHandler()
+handler.setFormatter(RequestIdFormatter("%(asctime)s [%(levelname)s] [%(request_id)s] %(name)s: %(message)s"))
+root_logger.addHandler(handler)
+root_logger.setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html

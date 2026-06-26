@@ -14,5 +14,4 @@ peft>=0.10.0
 accelerate>=0.29.0
 torchxrayvision>=1.0.1
 opencv-python
-
-
+scipy

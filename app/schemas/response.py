@@ -78,6 +78,57 @@ class DiagnosisResponse(BaseModel):
         description="List of clinical alerts or critical findings extracted from symptoms",
         examples=[["CRITICAL: Severe breathlessness with fast heart rate. Risk of acute respiratory failure."]]
     )
+    location_label: Optional[str] = Field(
+        None,
+        description="Location focus label",
+        examples=["Đỉnh Phải"]
+    )
+    distribution_label: Optional[str] = Field(
+        None,
+        description="Distribution pattern label",
+        examples=["Hai bên"]
+    )
+    characteristic_label: Optional[str] = Field(
+        None,
+        description="Characteristic shape label",
+        examples=["Đơn ổ"]
+    )
+    attention_in_lung_pct: Optional[float] = Field(
+        None,
+        description="Percentage of CAM attention inside lungs",
+        ge=0.0,
+        le=100.0,
+        examples=[90.7]
+    )
+    hot_area_pct: Optional[float] = Field(
+        None,
+        description="Percentage of lung area with strong attention",
+        ge=0.0,
+        le=100.0,
+        examples=[3.2]
+    )
+    description: Optional[str] = Field(
+        None,
+        description="CAM detailed clinical description",
+        examples=["Grad-CAM nổi 1 vùng tập trung..."]
+    )
+    decision: Optional[str] = Field(
+        None,
+        description="Binary decision of multimodal diagnosis: positive or negative",
+        examples=["positive"]
+    )
+    decision_label: Optional[str] = Field(
+        None,
+        description="Vietnamese descriptive label of the decision",
+        examples=["Nghi ngờ viêm phổi (Cần lưu ý lâm sàng)"]
+    )
+    threshold: Optional[float] = Field(
+        None,
+        description="Threshold TAU_IMG used for binary decision comparison",
+        ge=0.0,
+        le=1.0,
+        examples=[0.665]
+    )
 
     model_config = ConfigDict(
         json_schema_extra={

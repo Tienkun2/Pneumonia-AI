@@ -25,7 +25,7 @@ class LLMService:
 
     def load_model(self) -> None:
         """Loads the tokenizer and base model + LoRA adapter weights."""
-        if self._is_loaded:
+        if self._is_loaded and self._model is not None:
             return
 
         if not settings.ENABLE_LLM:
@@ -35,19 +35,14 @@ class LLMService:
             return
 
         # Check for CUDA availability
-        cuda_available = torch.cuda.is_available() and settings.DEVICE == "cuda"
+        cuda_available = torch.cuda.is_available()
         if not cuda_available:
             logger.warning(
-                f"CUDA is not active (device={settings.DEVICE}). "
-                "Hugging Face 4-bit quantized models cannot be loaded efficiently on CPU. "
-                "LLM Service will run in Simulation (Fallback) Mode."
+                "CUDA is not active. Attempting to load Hugging Face model anyway (may fail on CPU)."
             )
-            self._is_fallback = True
-            self._is_loaded = True
-            return
 
         try:
-            logger.info("Initializing Hugging Face LLM Service (CUDA)...")
+            logger.info("Initializing Hugging Face LLM Service...")
             from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
             from peft import PeftModel
 
@@ -78,16 +73,16 @@ class LLMService:
 
             self._is_fallback = False
             self._is_loaded = True
-            logger.info("LLM model and LoRA adapter loaded successfully on GPU.")
+            logger.info("LLM model and LoRA adapter loaded successfully.")
 
         except Exception as e:
             logger.error(
-                f"CRITICAL: Failed to load LLM model locally: {e}. "
-                "Exiting to Simulation (Fallback) Mode for stability.",
+                f"CRITICAL: Failed to load LLM model: {e}.",
                 exc_info=True
             )
             self._is_fallback = True
             self._is_loaded = True
+            raise e
 
     def generate_report(self, prompt: str) -> Tuple[str, bool]:
         """
@@ -101,7 +96,10 @@ class LLMService:
         """
         # Ensure model is initialized (lazy-loaded)
         if not self._is_loaded:
-            self.load_model()
+            try:
+                self.load_model()
+            except Exception as e:
+                logger.error(f"Failed to load LLM model: {e}")
 
         if self._is_fallback or self._model is None:
             logger.info("Generating report using Simulation Mode (CPU Fallback).")
@@ -256,6 +254,89 @@ class LLMService:
         return report
 
 
+    def _is_query_pneumonia_related(self, text: str) -> bool:
+        text_lower = text.lower()
+        keywords = [
+            "viêm phổi", "pneumonia", "phổi", "lung", "cough", "ho ", "sốt", "fever", "đờm", 
+            "sputum", "phlegm", "khó thở", "breathlessness", "ngực", "chest", "tim ", "heart", 
+            "curb", "curb65", "curb-65", "x-quang", "xray", "phác đồ", "kháng sinh", "antibiotic", 
+            "cap ", "typical", "atypical", "điển hình", "không điển hình", "thâm nhiễm", 
+            "đông đặc", "consolidation", "infiltration", "tràn dịch", "effusion"
+        ]
+        return any(kw in text_lower for kw in keywords)
+
+    def _call_gemini_api(self, messages: list) -> str:
+        """Calls the Google Gemini API to get a response for non-pneumonia or general questions."""
+        api_key = settings.GEMINI_API_KEY
+        if not api_key:
+            return "Vui lòng cấu hình GEMINI_API_KEY trong file .env để sử dụng tính năng trả lời tự động từ Gemini."
+
+        # Clean key from accidental whitespaces, single or double quotes
+        api_key = api_key.strip().strip("'").strip('"')
+
+        import urllib.request
+        import urllib.error
+        import json
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+
+        # Format conversation history for Gemini
+        contents = []
+        system_instruction = "Bạn là một Bác sĩ AI chuyên nghiệp. Hãy trả lời câu hỏi của người bệnh/bác sĩ bằng tiếng Việt chuẩn y khoa, ngắn gọn, chính xác, lịch sự."
+        
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if role == "system":
+                system_instruction = content
+                continue
+            gemini_role = "user" if role == "user" else "model"
+            contents.append({
+                "role": gemini_role,
+                "parts": [{"text": content}]
+            })
+
+        data = {
+            "contents": contents,
+            "system_instruction": {
+                "parts": [{"text": system_instruction}]
+            },
+            "generationConfig": {
+                "temperature": 0.4,
+                "maxOutputTokens": 1024
+            }
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode("utf-8"),
+            headers=headers,
+            method="POST"
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                candidates = res_data.get("candidates", [])
+                if candidates:
+                    content_obj = candidates[0].get("content", {})
+                    parts = content_obj.get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "")
+                return "Không thể nhận phản hồi hợp lệ từ Gemini API."
+        except urllib.error.HTTPError as e:
+            error_body = ""
+            try:
+                error_body = e.read().decode("utf-8")
+            except Exception:
+                pass
+            logger.error(f"Gemini API HTTPError {e.code}: {e.reason}\nBody: {error_body}", exc_info=True)
+            return f"Lỗi kết nối Gemini API (HTTP {e.code}): {e.reason}\nChi tiết phản hồi từ Google: {error_body}"
+        except Exception as e:
+            logger.error(f"Gemini API call failed: {e}", exc_info=True)
+            return f"Lỗi kết nối Gemini API: {str(e)}\nVui lòng kiểm tra lại kết nối mạng."
+
     def generate_chat_response(self, messages: list) -> Tuple[str, bool]:
         """
         Generates a conversational response from the fine-tuned LLM.
@@ -266,9 +347,26 @@ class LLMService:
         Returns:
             A tuple of (generated_response_string, is_fallback_mode_boolean).
         """
+        # Extract latest user message
+        user_message = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_message = msg.get("content", "").strip()
+                break
+
+        # If outside pneumonia domain, route to Gemini if key is provided
+        if user_message and not self._is_query_pneumonia_related(user_message):
+            if settings.GEMINI_API_KEY:
+                logger.info("Query is outside pneumonia domain. Routing to Gemini API.")
+                gemini_res = self._call_gemini_api(messages)
+                return gemini_res, False
+
         # Ensure model is initialized (lazy-loaded)
         if not self._is_loaded:
-            self.load_model()
+            try:
+                self.load_model()
+            except Exception as e:
+                logger.error(f"Failed to load LLM model: {e}")
 
         if self._is_fallback or self._model is None:
             logger.info("Generating chat response using Simulation Mode (CPU Fallback).")
@@ -365,7 +463,7 @@ class LLMService:
                 "2. **Phác đồ đơn trị liệu (Fluoroquinolone hô hấp):**\n"
                 "   - Levofloxacin (750mg tiêm tĩnh mạch hoặc uống/ngày).\n"
                 "   - Moxifloxacin (400mg tiêm tĩnh mạch hoặc uống/ngày).\n\n"
-                "*Lưu ý: Thời gian điều trị tiêu chuẩn thường từ 5 - 7 ngày và bệnh nhân phải hết sốt ít nhất 48 - 72 giờ trước khi ngưng kháng sinh.*"
+                "*Lưu ý: Thời gian điều trị tissue thường từ 5 - 7 ngày và bệnh nhân phải hết sốt ít nhất 48 - 72 giờ trước khi ngưng kháng sinh.*"
             )
         elif any(kw in lower_msg for kw in ["curb", "curb65", "curb-65", "thang điểm"]):
             return (
@@ -382,6 +480,9 @@ class LLMService:
                 "*   **3 - 5 điểm**: Nguy cơ tử vong cao (22% - 57%). Nhập viện điều trị nội trú tích cực (Cân nhắc ICU nếu từ 4 điểm)."
             )
         else:
+            if settings.GEMINI_API_KEY:
+                logger.info("Local simulation has no matching keyword rule. Routing to Gemini API.")
+                return self._call_gemini_api(messages)
             return (
                 f"Cảm ơn bác sĩ đã chia sẻ câu hỏi về: *\"{user_message}\"*.\n\n"
                 "Với vai trò là **Bác sĩ AI chuyên khoa Hô hấp**, để đưa ra hỗ trợ tư vấn lâm sàng chính xác nhất cho ca bệnh viêm phổi này, tôi khuyến nghị bác sĩ cung cấp thêm các thông tin:\n"

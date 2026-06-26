@@ -97,6 +97,11 @@ async def predict(
             custom_clinical_weight
         )
         
+        t_pspnet = result.get("t_pspnet", 0.0)
+        t_vision = result.get("t_vision", 0.0)
+        t_cam = result.get("t_cam", 0.0)
+        logger.info(f"PSPNet={t_pspnet:.2f} Vision={t_vision:.2f} CAM={t_cam:.2f} LLM=0.00")
+
         latency = (time.time() - request_start) * 1000
         logger.info(f"Prediction successful for {file.filename}. Latency: {latency:.2f}ms")
         
@@ -175,6 +180,10 @@ async def diagnose(
             xray_block["gradcam_overlay"] = predict_res["heatmap"]
         if predict_res.get("lung_focus_ratio") is not None:
             xray_block["lung_focus_ratio"] = predict_res["lung_focus_ratio"]
+            
+        for key in ["location_label", "distribution_label", "characteristic_label", "attention_in_lung_pct", "hot_area_pct", "description"]:
+            if predict_res.get(key) is not None:
+                xray_block[key] = predict_res[key]
 
         response_data = {
             "patient_id": patient_id,
@@ -199,6 +208,11 @@ async def diagnose(
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         }
         
+        t_pspnet = predict_res.get("t_pspnet", 0.0)
+        t_vision = predict_res.get("t_vision", 0.0)
+        t_cam = predict_res.get("t_cam", 0.0)
+        logger.info(f"PSPNet={t_pspnet:.2f} Vision={t_vision:.2f} CAM={t_cam:.2f} LLM=0.00")
+
         latency = (time.time() - request_start) * 1000
         logger.info(f"Diagnosis endpoint successful for patient {patient_id}. Latency: {latency:.2f}ms")
         return response_data

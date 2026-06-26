@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     LLM_MODEL_PATH: str = "app/models/medical_ai_adapter/kaggle/working/medical_ai_lora_adapter"
     LLM_BASE_MODEL: str = "unsloth/qwen2.5-7b-instruct-unsloth-bnb-4bit"
     ENABLE_LLM: bool = True
+    GEMINI_API_KEY: str = ""
     
     # Hardware Configuration
     # Auto-detect GPU if available, otherwise CPU

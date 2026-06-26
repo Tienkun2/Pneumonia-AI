@@ -102,7 +102,15 @@ async def predict_with_report(
             raise PredictionException("Failed to assemble case prompt for LLM.")
 
         logger.info("Sending prompt to LLM Service for medical review report...")
+        t3 = time.perf_counter()
         report_text, is_fallback = llm_serv.generate_report(master_prompt)
+        t4 = time.perf_counter()
+        
+        t_pspnet = predict_res.get("t_pspnet", 0.0)
+        t_vision = predict_res.get("t_vision", 0.0)
+        t_cam = predict_res.get("t_cam", 0.0)
+        t_llm = t4 - t3
+        logger.info(f"PSPNet={t_pspnet:.2f} Vision={t_vision:.2f} CAM={t_cam:.2f} LLM={t_llm:.2f}")
         
         latency = (time.time() - request_start) * 1000
         logger.info(f"Report prediction successful for {file.filename}. Latency: {latency:.2f}ms | Fallback: {is_fallback}")
