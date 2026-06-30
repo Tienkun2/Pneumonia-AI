@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     SELECTED_FEATURES: List[str] = ['chills', 'fatigue', 'cough', 'high_fever', 'breathlessness', 'phlegm', 'chest_pain', 'fast_heart_rate', 'rusty_sputum', 'malaise']
     TAU_IMG: float = 0.665
     W_SYM: float = 0.5
-    CAP_UP: float = 1.0
+    CAP_UP: float = 0.4
     EPS: float = 1e-6
 
     # Lung segmentation & inference constants
