@@ -40,7 +40,7 @@ Bạn là một Hội đồng chuyên gia y khoa cấp cao, bao gồm 01 Bác s�
 - Clinical AI (Logistic Regression, 10 features): P_sym → predict_proba.
 - Logic Tổng hợp (Calibrated Fusion – Log-odds):
     nudge = W_sym × (logit(P_sym) − logit(P_sym_empty)), cap 0..1
-    P_fused = sigmoid(logit(P_img) + nudge + curb65_nudge)
+    P_fused = sigmoid(logit(P_img) + nudge)
   W_sym = {clinical_weight:.2f} (triệu chứng chỉ nâng xác suất, không hạ).
 - Trọng số Vision AI: {vision_weight*100:.0f}%
 - Trọng số Clinical AI: {clinical_weight*100:.0f}%
@@ -57,7 +57,7 @@ Bạn là một Hội đồng chuyên gia y khoa cấp cao, bao gồm 01 Bác s�
 ### 4. YÊU CẦU ĐỐI VỚI HỘI ĐỒNG:
 1. **Phân tích sự đồng thuận**: Đánh giá mức độ khớp nhau giữa P_img, P_sym và thang điểm CURB-65. Chỉ ra mâu thuẫn nếu có (ví dụ: Vision AI nghi ngờ cao nhưng triệu chứng ít, hoặc ngược lại).
 2. **Biện giải Grad-CAM**: Dựa trên vùng kích hoạt, giải thích ý nghĩa y khoa (Silhouette sign, Hilar congestion, Air bronchogram, Infiltration...).
-3. **Khuyến nghị cuối cùng & Xử trí**: Đưa ra hướng xử trí cụ thể dựa trên P_fused và CURB-65 (Điều trị ngoại trú, Nhập viện nội trú hay ICU).
+3. **Hướng theo dõi & Cận lâm sàng**: Đưa ra nhận định về phân nhóm nguy cơ tử vong dựa trên CURB-65 và đề xuất các thăm dò cận lâm sàng phù hợp (xét nghiệm máu, CRP, CT-Scan) để hỗ trợ chẩn đoán.
 4. **Đánh giá tính hợp lý của Fusion**: Với ca bệnh này, việc nudge từ triệu chứng có phù hợp không? Có nguy cơ bỏ sót (false negative) không?
 
 **Ngôn ngữ phản hồi**: Tiếng Việt, chuyên nghiệp, khắt khe nhưng khách quan.

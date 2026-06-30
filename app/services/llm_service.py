@@ -112,7 +112,15 @@ class LLMService:
             # Qwen-2.5 Instruct format is typically:
             # <|im_start|>system\nYou are a medical expert...<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n
             messages = [
-                {"role": "system", "content": "Bạn là một Hội đồng chuyên gia y khoa cấp cao thẩm định chẩn đoán viêm phổi từ hệ thống AI Multimodal."},
+                {
+                    "role": "system",
+                    "content": (
+                        "Bạn là một Hội đồng chuyên gia y khoa cấp cao thẩm định chẩn đoán viêm phổi từ hệ thống AI Multimodal. "
+                        "Hãy phân tích ca bệnh dựa trên kết quả hình ảnh học, lâm sàng và thang điểm CURB-65. "
+                        "LƯU Ý QUAN TRỌNG: Tuyệt đối không tự ý kê đơn, không đưa ra tên thuốc hay liều lượng điều trị cụ thể trong báo cáo. "
+                        "Chỉ đề xuất các xét nghiệm, biện pháp theo dõi cận lâm sàng và hướng xử trí chung, đồng thời hướng dẫn bác sĩ tham khảo phác đồ điều trị chi tiết tại Quyết định số 4815/QĐ-BYT."
+                    )
+                },
                 {"role": "user", "content": prompt}
             ]
             
@@ -179,8 +187,6 @@ class LLMService:
         # Rule-based diagnostics based on symptoms
         diag_notes = []
         lower_symptoms = symptoms_str.lower()
-        if "rusty_sputum" in lower_symptoms:
-            diag_notes.append("Đặc biệt ghi nhận triệu chứng đờm màu rỉ sắt, đây là dấu hiệu lâm sàng điển hình chỉ điểm sự hiện diện của phế cầu khuẩn (Streptococcus pneumoniae).")
         if "high_fever" in lower_symptoms and "cough" in lower_symptoms and "phlegm" in lower_symptoms:
             diag_notes.append("Tập hợp triệu chứng sốt cao, ho kèm đờm hướng nhiều đến bệnh cảnh Viêm phổi điển hình (Typical Pneumonia) do vi khuẩn.")
         elif "cough" in lower_symptoms and "fatigue" in lower_symptoms and "high_fever" not in lower_symptoms:
@@ -191,29 +197,46 @@ class LLMService:
         
         diag_interpretation = " ".join(diag_notes) if diag_notes else "Biểu hiện triệu chứng lâm sàng ở mức độ thông thường, cần theo dõi sát."
 
+        # Parse CURB-65 score safely
+        curb_score_num = None
+        try:
+            if curb_str:
+                cleaned_curb = "".join([c for c in curb_str if c.isdigit() or c == '/'])
+                if '/' in cleaned_curb:
+                    curb_score_num = int(cleaned_curb.split('/')[0])
+        except Exception as e:
+            logger.error(f"Error parsing CURB-65 from string '{curb_str}': {e}")
+
+        curb_category = "Chưa được phân nhóm (Thiếu dữ liệu CURB-65)"
+        if curb_score_num is not None:
+            if curb_score_num <= 1:
+                curb_category = "Nhóm 1 (Nguy cơ tử vong thấp - Tỷ lệ tử vong 30 ngày < 3%)"
+            elif curb_score_num == 2:
+                curb_category = "Nhóm 2 (Nguy cơ tử vong trung bình - Tỷ lệ tử vong 30 ngày ~ 9%)"
+            else:
+                curb_category = "Nhóm 3 (Nguy cơ tử vong cao - Tỷ lệ tử vong 30 ngày 15% - 22%)"
+
         # Action guidelines
         if score_num >= settings.HIGH_RISK_THRESHOLD:
-            assessment = "Cảnh báo Nguy cơ Cao. Sự tương quan chặt chẽ giữa hình ảnh tổn thương phổi và triệu chứng lâm sàng cho thấy khả năng viêm phổi đang diễn tiến cấp tính."
+            assessment = "Cảnh báo Nguy cơ Cao. Sự tương quan giữa X-quang và triệu chứng cho thấy khả năng viêm phổi tiến triển."
             actions = (
-                f"- **Phân loại xử trí (Theo CURB-65: {curb_str})**: **Nhập viện cấp cứu khẩn cấp** - Chuyển người bệnh đến cơ sở y tế gần nhất có giường bệnh nội trú.\n"
-                "- **Cận lâm sàng khẩn cấp**: Tiến hành đếm công thức máu (WBC, Neutrophil), đo CRP định lượng, và cấy đờm làm kháng sinh đồ.\n"
-                "- **Chẩn đoán hình ảnh bổ sung**: Cân nhắc chụp cắt lớp vi tính lồng ngực (CT-Scan) nếu có nghi ngờ tràn dịch màng phổi hoặc áp-xe phổi dạng kén.\n"
-                "- **Liệu pháp oxy**: Bắt đầu hỗ trợ thở oxy mask hoặc gọng kính nếu độ bão hòa SpO2 < 94%."
+                f"- **Phân nhóm mức độ nặng (Theo CURB-65: {curb_str})**: **{curb_category}**.\n"
+                "- **Xét nghiệm đề xuất**: Tiến hành đếm công thức máu (WBC, Neutrophil), đo CRP định lượng, và cấy đờm làm kháng sinh đồ để định danh tác nhân.\n"
+                "- **Chẩn đoán hình ảnh bổ sung**: Cân nhắc chụp cắt lớp vi tính lồng ngực (CT-Scan) nếu có nghi ngờ tràn dịch màng phổi hoặc áp-xe phổi.\n"
+                "- **Theo dõi lâm sàng**: Kiểm tra nhịp thở và nồng độ bão hòa oxy SpO2 thường xuyên."
             )
         elif score_num >= settings.MEDIUM_RISK_THRESHOLD:
             assessment = "Nguy cơ Trung bình. Ghi nhận tổn thương nhẹ hoặc không đồng thuận hoàn toàn giữa hình ảnh học và biểu hiện triệu chứng."
             actions = (
-                f"- **Phân loại xử trí (Theo CURB-65: {curb_str})**: **Điều trị nội trú ngắn hạn hoặc theo dõi sát ngoại trú**.\n"
-                "- **Khám chuyên khoa hô hấp**: Khám lâm sàng nghe phổi để tìm rale ẩm, rale nổ.\n"
-                "- **Theo dõi sát tại nhà**: Đo SpO2 và đếm nhịp thở 2 lần/ngày. Yêu cầu nhập viện ngay nếu nhịp thở > 22 lần/phút hoặc SpO2 < 95%.\n"
-                "- **Xét nghiệm bổ sung**: Làm xét nghiệm máu ngoại vi và chỉ số viêm (CRP) để quyết định sử dụng kháng sinh ngoại trú."
+                f"- **Phân nhóm mức độ nặng (Theo CURB-65: {curb_str})**: **{curb_category}**.\n"
+                "- **Xét nghiệm bổ sung**: Làm xét nghiệm máu ngoại vi và chỉ số viêm (CRP) để hỗ trợ chẩn đoán.\n"
+                "- **Theo dõi lâm sàng**: Thăm khám nghe phổi phát hiện tiếng rale bất thường và kiểm soát nhịp thở của bệnh nhân."
             )
         else:
             assessment = "Nguy cơ Thấp. Hệ thống chưa phát hiện dấu hiệu viêm phổi rõ rệt từ cả hai phương thức X-quang và Lâm sàng."
             actions = (
-                f"- **Phân loại xử trí (Theo CURB-65: {curb_str})**: **Điều trị triệu chứng ngoại trú tại nhà**.\n"
-                "- **Chăm sóc ban đầu**: Giảm ho, hạ sốt, uống nhiều nước ấm và nghỉ ngơi hợp lý.\n"
-                "- **Theo dõi diễn tiến bệnh**: Tái khám sau 3 ngày hoặc khi có biểu hiện sốt cao không hạ hoặc khó thở tăng lên."
+                f"- **Phân nhóm mức độ nặng (Theo CURB-65: {curb_str})**: **{curb_category}**.\n"
+                "- **Theo dõi diễn tiến**: Tiếp tục theo dõi các triệu chứng hô hấp và đo thân nhiệt cơ thể khi cần thiết."
             )
 
         # Extract weights from prompt
@@ -231,7 +254,7 @@ class LLMService:
         else:
             criticism += " Hình ảnh X-quang giữ vai trò chủ đạo để xác định tổn thương thực thể ở nhu mô phổi, tránh bỏ sót các ca viêm phổi ít triệu chứng cơ năng."
 
-        report = f"""## BÁO CÁO HỘI CHẨN ĐA PHƯƠNG THỨC — KHUYẾN NGHỊ ĐIỀU TRỊ HÔ HẤP
+        report = f"""## BÁO CÁO HỘI CHẨN ĐA PHƯƠNG THỨC — HỖ TRỢ QUYẾT ĐỊNH LÂM SÀNG HÔ HẤP
 
 (Báo cáo hỗ trợ quyết định lâm sàng tự động bằng công nghệ AI của PlumoX — Chỉ dùng cho mục đích tham khảo chuyên môn, không thay thế quyết định lâm sàng của bác sĩ)
 
@@ -245,7 +268,7 @@ class LLMService:
 - Vùng nhận diện tổn thương trên phim X-quang ngực thẳng (vùng đỏ/cam trên bản đồ Grad-CAM) tập trung phân tích tại khu vực phế trường. Phù hợp với các dấu hiệu thâm nhiễm phế nang (alveolar infiltration), bóng mờ rải rác hoặc hội tụ đường phế quản.
 - **Diễn giải triệu chứng lâm sàng:** {diag_interpretation}
 
-### 3. Khuyến Nghị Lâm Sàng Tiếp Theo:
+### 3. Định Hướng Theo Dõi & Cận Lâm Sàng:
 {actions}
 
 ### 4. Đánh giá Tỷ lệ Trọng số Tổng hợp:
@@ -278,12 +301,16 @@ class LLMService:
         import urllib.error
         import json
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
         headers = {"Content-Type": "application/json"}
 
         # Format conversation history for Gemini
         contents = []
-        system_instruction = "Bạn là một Bác sĩ AI chuyên nghiệp. Hãy trả lời câu hỏi của người bệnh/bác sĩ bằng tiếng Việt chuẩn y khoa, ngắn gọn, chính xác, lịch sự."
+        system_instruction = (
+            "Bạn là một Bác sĩ AI chuyên khoa Hô hấp hỗ trợ tra cứu lâm sàng. Hãy trả lời câu hỏi bằng tiếng Việt chuẩn y khoa, ngắn gọn, chính xác, lịch sự. "
+            "LƯU Ý QUAN TRỌNG: Không tự ý kê đơn, không đưa ra tên thuốc hay liều lượng cụ thể (không khuyến nghị các liều thuốc như Amoxicillin 1g, Ceftriaxone, v.v.). "
+            "Hãy định hướng xử trí chung theo khuyến cáo của Bộ Y tế Việt Nam và đề xuất tham khảo phác đồ chi tiết tại Quyết định số 4815/QĐ-BYT."
+        )
         
         for msg in messages:
             role = msg.get("role")
@@ -381,7 +408,11 @@ class LLMService:
             if not has_system:
                 formatted_messages.insert(0, {
                     "role": "system",
-                    "content": "Bạn là một Bác sĩ AI chuyên khoa Hô hấp. Hãy trả lời câu hỏi của người bệnh bằng tiếng Việt chuẩn y khoa, ngắn gọn, chính xác, không lặp từ và không sử dụng thuật ngữ dịch máy thô sơ."
+                    "content": (
+                        "Bạn là một Bác sĩ AI chuyên khoa Hô hấp hỗ trợ tra cứu lâm sàng. Hãy trả lời bằng tiếng Việt chuẩn y khoa, ngắn gọn, chính xác. "
+                        "LƯU Ý QUAN TRỌNG: Không tự ý kê đơn, không đưa ra tên thuốc hay liều lượng cụ thể (không ghi các liều thuốc cụ thể như Amoxicillin 1g, Ceftriaxone, v.v.). "
+                        "Hãy định hướng xử trí chung theo phân loại CURB-65 và hướng dẫn lâm sàng của Bộ Y tế Việt Nam, đồng thời đề xuất bác sĩ tham khảo phác đồ chi tiết tại Quyết định số 4815/QĐ-BYT."
+                    )
                 })
             
             formatted_prompt = self._tokenizer.apply_chat_template(
@@ -434,16 +465,20 @@ class LLMService:
         # Keyword mapping (similar to the frontend's fallback database but centralized here)
         if any(kw in lower_msg for kw in ["phác đồ", "cap", "cộng đồng"]):
             return (
-                "### Phác đồ điều trị Viêm phổi mắc phải cộng đồng (CAP) - Bộ Y tế:\n\n"
+                "### Hướng xử trí Viêm phổi mắc phải cộng đồng (CAP) - Theo khuyến cáo Bộ Y tế:\n\n"
                 "Phân loại mức độ nặng theo thang điểm **CURB-65**:\n"
                 "- **CURB-65 = 0-1 (Nhẹ):** Điều trị ngoại trú.\n"
-                "  * *Lựa chọn 1:* Amoxicillin (1g x 3 lần/ngày) hoặc Doxycycline (100mg x 2 lần/ngày).\n"
-                "  * *Lựa chọn 2 (Nếu nghi ngờ vi khuẩn không điển hình):* Macrolide (Clarithromycin 500mg x 2 lần/ngày hoặc Azithromycin 500mg/ngày).\n"
-                "- **CURB-65 = 2 (Trung bình):** Điều trị nội trú ngắn hạn.\n"
-                "  * *Phối hợp:* Beta-lactam tiêm truyền (Ceftriaxone 1-2g/ngày hoặc Cefotaxime 1-2g mỗi 8 giờ) **KẾT HỢP** Macrolide uống/tiêm truyền.\n"
-                "  * *Hoặc:* Levofloxacin (750mg/ngày) đơn trị liệu.\n"
-                "- **CURB-65 ≥ 3 (Nặng):** Nhập viện điều trị tích cực (ICU nếu CURB-65 ≥ 4).\n"
-                "  * *Phối hợp:* Beta-lactam tiêm truyền kháng Pseudomonal (Cefepime hoặc Piperacillin/Tazobactam) **KẾT HỢP** Fluoroquinolone hô hấp (Levofloxacin/Moxifloxacin)."
+                "  * *Định hướng xử trí:* Bệnh nhân có thể điều trị tại nhà dưới sự theo dõi chặt chẽ của y tế cơ sở.\n"
+                "  * *Lựa chọn kháng sinh ban đầu:* Ưu tiên sử dụng kháng sinh đường uống đơn trị liệu (nhóm Beta-lactam hoặc Tetracycline). Nếu nghi ngờ có tác nhân vi khuẩn không điển hình, cân nhắc bổ sung hoặc thay thế bằng nhóm Macrolide đường uống.\n"
+                "  * *Lưu ý:* Bác sĩ vui lòng tham khảo chi tiết phác đồ lựa chọn thuốc và liều lượng cụ thể tại Mục 4.1 của Hướng dẫn ban hành kèm theo **Quyết định số 4815/QĐ-BYT**.\n"
+                "- **CURB-65 = 2 (Trung bình):** Điều trị nội trú ngắn hạn tại khoa thường.\n"
+                "  * *Định hướng xử trí:* Nhập viện điều trị hoặc theo dõi sát tại đơn vị lưu bệnh trú ngắn ngày.\n"
+                "  * *Lựa chọn kháng sinh ban đầu:* Khuyến cáo phối hợp kháng sinh Beta-lactam tiêm truyền kết hợp với Macrolide đường uống/tiêm truyền, hoặc đơn trị liệu bằng Fluoroquinolone hô hấp đường tiêm/uống.\n"
+                "  * *Lưu ý:* Chi tiết nhóm thuốc và liều dùng cụ thể phải tuân thủ Mục 4.2 của Hướng dẫn ban hành kèm theo **Quyết định số 4815/QĐ-BYT**.\n"
+                "- **CURB-65 ≥ 3 (Nặng):** Nhập viện điều trị nội trú tích cực (Cấp cứu/ICU nếu CURB-65 ≥ 4).\n"
+                "  * *Định hướng xử trí:* Nhập viện khẩn cấp, điều trị tại khoa Hồi sức tích cực (ICU) hoặc phòng cấp cứu chuyên khoa.\n"
+                "  * *Lựa chọn kháng sinh ban đầu:* Phác đồ phối hợp kháng sinh Beta-lactam tiêm truyền phổ rộng (ưu tiên nhóm kháng Pseudomonal nếu có yếu tố nguy cơ) kết hợp với Fluoroquinolone hô hấp tiêm truyền hoặc Macrolide tiêm truyền.\n"
+                "  * *Lưu ý:* Liều lượng và cách phối hợp thuốc chi tiết được quy định tại Mục 4.3 của Hướng dẫn ban hành kèm theo **Quyết định số 4815/QĐ-BYT**."
             )
         elif any(kw in lower_msg for kw in ["phân biệt", "điển hình", "không điển hình", "x-quang"]):
             return (
@@ -456,14 +491,14 @@ class LLMService:
             )
         elif any(kw in lower_msg for kw in ["kháng sinh", "liều dùng", "thuốc"]):
             return (
-                "### Khuyến cáo kháng sinh ban đầu cho Người lớn (CAP trung bình - CURB-65 = 2):\n\n"
-                "1. **Phác đồ phối hợp (Ưu tiên lựa chọn):**\n"
-                "   - **Beta-lactam:** Ceftriaxone (1 - 2g tiêm tĩnh mạch/ngày) hoặc Cefotaxime (1 - 2g tiêm tĩnh mạch mỗi 8 giờ).\n"
-                "   - **Macrolide phối hợp:** Azithromycin (500mg uống/ngày) hoặc Clarithromycin (500mg uống 2 lần/ngày).\n"
-                "2. **Phác đồ đơn trị liệu (Fluoroquinolone hô hấp):**\n"
-                "   - Levofloxacin (750mg tiêm tĩnh mạch hoặc uống/ngày).\n"
-                "   - Moxifloxacin (400mg tiêm tĩnh mạch hoặc uống/ngày).\n\n"
-                "*Lưu ý: Thời gian điều trị tissue thường từ 5 - 7 ngày và bệnh nhân phải hết sốt ít nhất 48 - 72 giờ trước khi ngưng kháng sinh.*"
+                "### Hướng dẫn sử dụng Kháng sinh ban đầu cho Người lớn (CAP trung bình - CURB-65 = 2):\n\n"
+                "Theo khuyến cáo của Bộ Y tế Việt Nam cho bệnh nhân viêm phổi mắc phải cộng đồng mức độ trung bình điều trị tại khoa thường:\n"
+                "1. **Nguyên tắc lựa chọn kháng sinh:**\n"
+                "   - **Phác đồ phối hợp (Ưu tiên):** Kết hợp một kháng sinh nhóm Beta-lactam đường tiêm truyền (ví dụ: Cephalosporin thế hệ 3) với một kháng sinh nhóm Macrolide (đường uống hoặc tiêm truyền) để bao phủ cả vi khuẩn điển hình và không điển hình.\n"
+                "   - **Phác đồ đơn trị liệu:** Sử dụng một kháng sinh nhóm Fluoroquinolone hô hấp (đường uống hoặc tiêm truyền) cho hiệu quả diệt khuẩn rộng.\n"
+                "2. **Thời gian điều trị:**\n"
+                "   - Thường kéo dài từ 5 - 7 ngày đối với viêm phổi không biến chứng. Bệnh nhân cần đạt tiêu chuẩn ổn định lâm sàng và hết sốt ít nhất 48 - 72 giờ trước khi xem xét dừng kháng sinh.\n\n"
+                "*LƯU Ý LÂM SÀNG: AI không tự ra quyết định phác đồ, không kê đơn hay chỉ định liều lượng cụ thể. Bác sĩ vui lòng tham khảo chi tiết danh mục thuốc, liều dùng và hướng dẫn phối hợp tại Hướng dẫn chẩn đoán và điều trị viêm phổi mắc phải cộng đồng ở người lớn ban hành theo **Quyết định số 4815/QĐ-BYT**.*"
             )
         elif any(kw in lower_msg for kw in ["curb", "curb65", "curb-65", "thang điểm"]):
             return (

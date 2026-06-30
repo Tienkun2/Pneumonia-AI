@@ -132,7 +132,7 @@ class InferenceService:
             curb65_nudge = float(np.clip(0.35 * (curb65_score - 1), 0.0, 1.2))
             logger.info(f"CURB-65={curb65_score} → curb65_nudge={curb65_nudge:.3f}")
 
-        z_fused = z_img + nudge + curb65_nudge
+        z_fused = z_img + nudge
         p_fused = float(1.0 / (1.0 + np.exp(-z_fused)))
 
         decision_bool  = p_fused >= settings.TAU_IMG
@@ -144,17 +144,21 @@ class InferenceService:
         # 6. Clinical Alerts
         clinical_alerts = []
         if "breathlessness" in selected_symptoms and "fast_heart_rate" in selected_symptoms:
-            clinical_alerts.append("CRITICAL: Nhịp tim nhanh kèm khó thở nguy hiểm. Nguy cơ suy hô hấp cấp tính.")
-        if "rusty_sputum" in selected_symptoms:
-            clinical_alerts.append("WARNING: Xuất hiện đờm màu rỉ sắt. Nghi ngờ cao nhiễm khuẩn Streptococcus pneumoniae.")
+            clinical_alerts.append("Tim đập nhanh kèm khó thở. Nguy cơ suy hô hấp.")
         if curb65_score is not None and curb65_score >= 3:
-            clinical_alerts.append(f"CRITICAL: Điểm lâm sàng CURB-65 cao ({curb65_score}/5). Kích hoạt cơ chế bảo vệ tối đa.")
+            if not decision_bool:
+                clinical_alerts.append(
+                    f"Cảnh báo: Theo Quyết định 4815/QĐ-BYT của Bộ Y tế, điểm CURB-65 cao ({curb65_score}/5) thuộc Nhóm 3 (nguy cơ tử vong 30 ngày: 15% - 22%). "
+                    f"Dù AI chưa phát hiện viêm phổi, vẫn khuyến cáo nhập viện theo dõi sát và đánh giá lâm sàng toàn diện."
+                )
+            else:
+                clinical_alerts.append(
+                    f"Nguy hiểm: Nghi ngờ viêm phổi. Theo Quyết định 4815/QĐ-BYT của Bộ Y tế, điểm CURB-65 cao ({curb65_score}/5) thuộc Nhóm 3 (nguy cơ tử vong: 15% - 22%) - "
+                    f"Chỉ định nhập viện điều trị nội trú tích cực (cân nhắc ICU nếu CURB-65 >= 4)."
+                )
 
-        # 7. Risk level (CURB-65 override)
-        if curb65_score is not None and curb65_score >= 3:
-            risk_level = RiskLevel.HIGH
-        else:
-            risk_level = self._get_risk_level(p_fused)
+        # 7. Risk level (Purely based on p_fused since they are parallel evaluations)
+        risk_level = self._get_risk_level(p_fused)
 
         # 8. Master Prompt for LLM
         vision_weight = 1.0 - w_sym

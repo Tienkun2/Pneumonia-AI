@@ -76,9 +76,9 @@ graph TD
 Kết quả từ 2 nhánh không cộng trung bình đơn giản mà được hiệu chuẩn qua hàm log-odds:
 1. Chuyển xác suất Vision (P<sub>v</sub>) và Clinical (P<sub>c</sub>) thành thang log-odds (z<sub>img</sub>, z<sub>sym</sub>).
 2. Tính toán độ chênh lâm sàng so với trạng thái không triệu chứng (nudge = w<sub>sym</sub> × (z<sub>sym</sub> - logit<sub>base</sub>)). Nudge này được giới hạn chỉ điều chỉnh *tăng lên* (nudge up) để tránh phủ nhận tổn thương thực thể trên phim X-quang.
-3. Cộng thêm độ nặng dựa trên điểm số **CURB-65** (nudge<sub>CURB65</sub> = 0.35 × (score - 1) với score ≥ 2, giới hạn tối đa 1.2).
-4. Hợp nhất: z<sub>fused</sub> = z<sub>img</sub> + nudge + nudge<sub>CURB65</sub> và đưa qua hàm Sigmoid để sinh ra điểm số tổng hợp P<sub>fused</sub>.
-5. **Cơ chế ghi đè khẩn cấp (Emergency Override):** Nếu điểm CURB-65 $\ge 3$ (ca nguy cấp), hệ thống tự động cưỡng chế phân loại rủi ro thành **HIGH** để đảm bảo an toàn tối đa cho bệnh nhân.
+3. Điểm số **CURB-65** được giữ lại cho cảnh báo và phân cấp rủi ro lâm sàng thay vì cộng vào log-odds chẩn đoán.
+4. Hợp nhất: z<sub>fused</sub> = z<sub>img</sub> + nudge và đưa qua hàm Sigmoid để sinh ra điểm số tổng hợp P<sub>fused</sub>.
+5. **Cơ chế phân cấp rủi ro & ghi đè khẩn cấp (Emergency Override):** Nếu điểm CURB-65 $\ge 3$ (ca nguy cấp), hệ thống tự động cưỡng chế phân loại rủi ro thành **HIGH** bất kể P<sub>fused</sub> để đảm bảo an toàn tối đa cho bệnh nhân. Ngược lại, mức rủi ro được xếp dựa trên P<sub>fused</sub> (HIGH $\ge 0.70$, MEDIUM $\ge 0.35$, LOW $< 0.35$).
 
 #### E. Biên luận Lâm sàng Tạo sinh (GenAI LLM - Qwen2.5-7B + LoRA)
 - **Nhiệm vụ:** Tinh chỉnh (LoRA fine-tuning) mô hình **Qwen2.5-7B-Instruct** để đóng vai trò Hội đồng Y khoa ảo, tự động biên dịch kết quả định lượng thành báo cáo chẩn đoán y khoa chuyên nghiệp và hướng dẫn xử trí lâm sàng bằng tiếng Việt.
@@ -168,9 +168,9 @@ The system coordinates 4 specialized AI components to execute a unified diagnost
 - **Calibrated Late Fusion Algorithm**: Combines Vision (P<sub>v</sub>) and Clinical (P<sub>c</sub>) predictions using a log-odds transfer:
   1. Converts probabilities into log-odds space (z<sub>img</sub>, z<sub>sym</sub>).
   2. Applies a clinical symptom nudge (nudge = w<sub>sym</sub> × (z<sub>sym</sub> - logit<sub>base</sub>)). This nudge is capped to only adjust *upwards* (nudge up), preserving the physical evidence of chest scans.
-  3. Integrates a gravity-based clinical severity modifier using the **CURB-65** score (nudge<sub>CURB65</sub> = 0.35 × (score - 1) for score ≥ 2, capped at 1.2).
-  4. Fuses them: z<sub>fused</sub> = z<sub>img</sub> + nudge + nudge<sub>CURB65</sub> and decodes through Sigmoid to output P<sub>fused</sub>.
-  5. **Emergency Override:** If CURB-65 $\ge 3$, the system immediately overrides the classification, raising the risk level to **HIGH** for clinical safety.
+  3. Retains the **CURB-65** score as a clinical severity indicator for warnings and risk categorization, rather than adding it to the diagnostic probability.
+  4. Fuses them: z<sub>fused</sub> = z<sub>img</sub> + nudge and decodes through Sigmoid to output P<sub>fused</sub>.
+  5. **Risk Categorization & Emergency Override:** If CURB-65 $\ge 3$ (severe case), the system immediately overrides and forces the risk level to **HIGH** regardless of P<sub>fused</sub>. Otherwise, risk is categorized based on P<sub>fused</sub> (HIGH $\ge 0.70$, MEDIUM $\ge 0.35$, LOW $< 0.35$).
 - **Generative AI Clinical Reporter (Qwen2.5-7B + LoRA)**: A fine-tuned **Qwen2.5-7B-Instruct** model adapted via LoRA. It analyzes the synthesized case prompt to output a structured clinical consultation report and treatment recommendations in medical-grade Vietnamese.
   - **Simulation Fallback Mode**: Automatically active on CPU-only hosts or when CUDA is unavailable. It activates a rule-based expert diagnostic writer to guarantee 100% service uptime.
 
